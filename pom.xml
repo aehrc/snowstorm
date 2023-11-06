@@ -352,7 +352,7 @@
 						</platforms>
 					</from>
 					<to>
-						<image>${docker.registry}${docker.image.prefix}/${project.artifactId}</image>
+						<image>${docker.registry}/${docker.image.prefix}/${project.artifactId}</image>
 						<tags>
 							<tag>${docker.image.tag}</tag>
 							<tag>${project.version}</tag>

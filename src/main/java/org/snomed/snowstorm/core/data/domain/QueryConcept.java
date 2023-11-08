@@ -2,6 +2,7 @@ package org.snomed.snowstorm.core.data.domain;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import io.kaicode.elasticvc.domain.DomainEntity;
+
 import org.apache.commons.lang3.math.NumberUtils;
 import org.snomed.snowstorm.fhir.domain.FHIRGraphNode;
 import org.springframework.data.annotation.Transient;
@@ -31,6 +32,7 @@ public class QueryConcept extends DomainEntity<QueryConcept> implements FHIRGrap
 		String ATTR = "attr";
 		String ATTR_MAP = "attrMap";
 		String START = "start";
+		String REFSETS = "refsets";
 	}
 
 	@Field(type = FieldType.Keyword)
@@ -56,6 +58,9 @@ public class QueryConcept extends DomainEntity<QueryConcept> implements FHIRGrap
 	// Format:
 	// groupNo:attr=value:attr=value,value|groupNo:attr=value:attr=value,value
 	private String attrMap;
+
+	@Field(type = FieldType.Long)
+	private Set<Long> refsets = Collections.emptySet();
 
 	@Transient
 	private Map<Integer, Map<String, List<Object>>> groupedAttributesMap;
@@ -83,6 +88,7 @@ public class QueryConcept extends DomainEntity<QueryConcept> implements FHIRGrap
 		stated = queryConcept.stated;
 		attrMap = queryConcept.attrMap;
 		serializeGroupedAttributesMap();// Populates attr field
+		refsets = new HashSet<>(queryConcept.refsets);
 	}
 
 	public void clearAttributes() {
@@ -203,6 +209,10 @@ public class QueryConcept extends DomainEntity<QueryConcept> implements FHIRGrap
 		return ancestors;
 	}
 
+	public Set<Long> getRefsets() {
+		return refsets;
+	}
+
 	public boolean isStated() {
 		return stated;
 	}
@@ -228,6 +238,10 @@ public class QueryConcept extends DomainEntity<QueryConcept> implements FHIRGrap
 		this.ancestors = ancestors;
 	}
 
+	public void setRefsets(Set<Long> refsets) {
+		this.refsets = refsets;
+	}
+
 	public void setStated(boolean stated) {
 		this.stated = stated;
 	}
@@ -235,11 +249,12 @@ public class QueryConcept extends DomainEntity<QueryConcept> implements FHIRGrap
 	public boolean fieldsMatch(QueryConcept other) {
 		if (!this.equals(other)
 				|| !this.getParents().equals(other.getParents())
-				|| !this.getAncestors().equals(other.getAncestors())) {
+				|| !this.getAncestors().equals(other.getAncestors())
+				|| !this.getRefsets().equals(other.getRefsets())) {
 			return false;
 		}
-		final Map<Integer, Map<String, List<Object>>> groupedAttributesMap = orEmpty(this.getGroupedAttributesMap());
-		final Map<Integer, Map<String, List<Object>>> otherGroupedAttributesMap = orEmpty(other.getGroupedAttributesMap());
+		Map<Integer, Map<String, List<Object>>> groupedAttributesMap = orEmpty(this.getGroupedAttributesMap());
+		Map<Integer, Map<String, List<Object>>> otherGroupedAttributesMap = orEmpty(other.getGroupedAttributesMap());
 		// Sort both before comparing
 		groupedAttributesMap.values().forEach(value -> value.values().forEach(list -> list.sort(null)));
 		otherGroupedAttributesMap.values().forEach(value -> value.values().forEach(list -> list.sort(null)));
@@ -266,6 +281,7 @@ public class QueryConcept extends DomainEntity<QueryConcept> implements FHIRGrap
 				", ancestors=" + ancestors +
 				", stated=" + stated +
 				", attrMap=" + getAttrMap() +
+				", refsets=" + refsets +
 				'}';
 	}
 
@@ -283,13 +299,13 @@ public class QueryConcept extends DomainEntity<QueryConcept> implements FHIRGrap
 		return Objects.hash(conceptIdL, stated);
 	}
 
-	private static final class GroupedAttributesMapSerializer {
+	private static class GroupedAttributesMapSerializer {
 
 		private static String serializeMap(Map<Integer, Map<String, List<Object>>> groupedAttributesMap) {
 			if (groupedAttributesMap == null) {
 				return "";
 			}
-			final StringBuilder builder = new StringBuilder();
+			StringBuilder builder = new StringBuilder();
 			for (Integer groupNo : groupedAttributesMap.keySet()) {
 				Map<String, List<Object>> attributes = groupedAttributesMap.get(groupNo);
 				builder.append(groupNo);

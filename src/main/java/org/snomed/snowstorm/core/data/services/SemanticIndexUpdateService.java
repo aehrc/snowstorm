@@ -18,6 +18,7 @@ import org.snomed.otf.owltoolkit.conversion.ConversionException;
 import org.snomed.snowstorm.config.Config;
 import org.snomed.snowstorm.core.data.domain.*;
 import org.snomed.snowstorm.core.data.repositories.QueryConceptRepository;
+import org.snomed.snowstorm.core.data.services.identifier.IdentifierService;
 import org.snomed.snowstorm.core.data.services.pojo.SAxiomRepresentation;
 import org.snomed.snowstorm.core.data.services.transitiveclosure.GraphBuilder;
 import org.snomed.snowstorm.core.data.services.transitiveclosure.GraphBuilderException;
@@ -129,6 +130,13 @@ public class SemanticIndexUpdateService extends ComponentService implements Comm
 		// If promotion the semantic changes will be promoted with the rest of the content.
 	}
 
+
+	private SearchHitsIterator<ReferenceSetMember> getRefsetMembershipChanges(Commit commit) {
+		final BranchCriteria branchCriteria = versionControlHelper.getBranchCriteriaChangesAndDeletionsWithinOpenCommitOnly(commit);
+		final BoolQueryBuilder queryBuilder = branchCriteria.getEntityBranchCriteria(ReferenceSetMember.class);
+		return elasticsearchTemplate.searchForStream(new NativeSearchQueryBuilder().withQuery(queryBuilder).build(), ReferenceSetMember.class);
+	}
+
 	private Map<String, Integer> rebuildSemanticIndex(Commit commit, boolean dryRun) throws ConversionException, GraphBuilderException, ServiceException {
 		Branch branch = commit.getBranch();
 
@@ -204,6 +212,7 @@ public class SemanticIndexUpdateService extends ComponentService implements Comm
 				// Nothing to do
 				return 0;
 			}
+
 			// Strategy: Clear the modelling of updated concepts then add/remove edges and attributes based on the new commit
 			newGraph = graphBuilder.getNodeCount() == 0;
 			// Clear parents of updated concepts
@@ -340,6 +349,7 @@ public class SemanticIndexUpdateService extends ComponentService implements Comm
 				if (completeRebuild) {
 					if (node != null) {
 						QueryConcept newQueryConcept = createQueryConcept(form, branchPath, conceptAttributeChanges, throwExceptionIfTransitiveClosureLoopFound, node.getId(), node);
+						newQueryConcept.setRefsets(getRefsetMembershipForConcept(newStateCriteria, conceptId));
 						if (!queryConcept.fieldsMatch(newQueryConcept)) {
 							queryConcept = newQueryConcept;
 							save = true;
@@ -350,6 +360,7 @@ public class SemanticIndexUpdateService extends ComponentService implements Comm
 					}
 				} else {
 					QueryConcept newQueryConcept = new QueryConcept(queryConcept);
+					newQueryConcept.setRefsets(getRefsetMembershipForConcept(newStateCriteria, conceptId));
 					if (node != null) {
 						// TC changes
 						newQueryConcept.setParents(node.getParents().stream().map(Node::getId).collect(Collectors.toSet()));
@@ -423,6 +434,22 @@ public class SemanticIndexUpdateService extends ComponentService implements Comm
 
 		timer.finish();
 		return queryConceptsToSave.size();
+	}
+
+	private Set<Long> getRefsetMembershipForConcept(BranchCriteria criteria, final Long conceptId) {
+		final Set<Long> referenceSets = new HashSet<>();
+		try (final SearchHitsIterator<ReferenceSetMember> refsetMemberships = elasticsearchTemplate.searchForStream(new NativeSearchQueryBuilder()
+			.withQuery(boolQuery()
+				.must(criteria.getEntityBranchCriteria(ReferenceSetMember.class))
+				.must(termQuery(ReferenceSetMember.Fields.ACTIVE, true))
+				.filter(termQuery(ReferenceSetMember.Fields.REFERENCED_COMPONENT_ID, conceptId))
+				).build(), ReferenceSetMember.class)) {
+			while (refsetMemberships.hasNext()) {
+				final long refsetId = parseLong(refsetMemberships.next().getContent().getRefsetId());
+				referenceSets.add(refsetId);
+			}
+		}
+		return referenceSets;
 	}
 
 	private QueryConcept createQueryConcept(Form form, String branchPath, Map<Long, AttributeChanges> conceptAttributeChanges,
@@ -565,6 +592,19 @@ public class SemanticIndexUpdateService extends ComponentService implements Comm
 				.withPageable(LARGE_PAGE)
 				.build(), Relationship.class)) {
 			otherChangedRelationships.forEachRemaining(hit -> updateSource.add(parseLong(hit.getContent().getSourceId())));
+		}
+
+		// Collect changed referenceset membership
+		try (SearchHitsIterator<ReferenceSetMember> changedRefsetMembership = elasticsearchTemplate.searchForStream(new NativeSearchQueryBuilder()
+				.withQuery(changesCriteria.getEntityBranchCriteria(ReferenceSetMember.class))
+				.build(), ReferenceSetMember.class)) {
+			changedRefsetMembership.forEachRemaining(hit -> {
+				final String componentId = hit.getContent().getReferencedComponentId();
+				if (IdentifierService.isConceptId(componentId)) {
+					updateSource.add(parseLong(componentId));
+				}
+			});
+			timer.checkpoint("Collect changed reference set membership.");
 		}
 
 		if (updateSource.isEmpty()) {

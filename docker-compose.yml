@@ -27,11 +27,11 @@ services:
   snowstorm:
     image: snomedinternational/snowstorm:latest
     container_name: snowstorm
-#    restart: always
+    restart: always
     depends_on:
       elasticsearch:
         condition: service_healthy
-    entrypoint: java -Xms2g -Xmx4g -Dcache.ecl.enabled=false -Delasticsearch.index.max.terms.count=700000 --add-opens java.base/java.lang=ALL-UNNAMED --add-opens=java.base/java.util=ALL-UNNAMED -cp @/app/jib-classpath-file org.snomed.snowstorm.SnowstormApplication --elasticsearch.urls=http://es:9200
+    entrypoint: java -Xms2g -Xmx4g --add-opens java.base/java.lang=ALL-UNNAMED --add-opens=java.base/java.util=ALL-UNNAMED -cp @/app/jib-classpath-file org.snomed.snowstorm.SnowstormApplication --elasticsearch.urls=http://es:9200
     networks:
       elastic:
         aliases:
@@ -39,20 +39,20 @@ services:
     ports:
       - 8080:8080
 
-#  browser:
-#    image: snomedinternational/snomedct-browser:latest
-#    container_name: browser
-#    depends_on:
-#      - snowstorm
-#    links:
-#      - snowstorm:snowstorm
-#    networks:
-#      - elastic
-#    environment:
-#      - API_HOST=http://snowstorm:8080/
-#    ports:
-#      - 80:80
-#    restart: always
+  browser:
+    image: snomedinternational/snomedct-browser:latest
+    container_name: browser
+    depends_on:
+      - snowstorm
+    links:
+      - snowstorm:snowstorm
+    networks:
+      - elastic
+    environment:
+      - API_HOST=http://snowstorm:8080/
+    ports:
+      - 80:80
+    restart: always
 
 
 networks:

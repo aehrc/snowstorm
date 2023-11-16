@@ -25,7 +25,7 @@ steps:
     displayName: 'Login to ACR'
     inputs:
       command: login
-      containerRegistry: $(containerRegistry)
+      containerRegistry: $(dockerRegistry)
 
   - task: Cache@2
     displayName: Cache Maven local repo

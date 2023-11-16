@@ -1,0 +1,66 @@
+name: snomio-$(Date:yyyyMMdd)$(Rev:.r)_$(Build.SourceBranchName)
+
+trigger:
+  branches:
+    include:
+    - 'test-azurepipe'
+pr:
+  branches:
+    include:
+    - 'test-azurepipe'
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  mavenCache: $(Pipeline.Workspace)/.m2/repository
+  mavenOptions: '-Dmaven.repo.local=$(mavenCache) -Dmaven.settings.security=never'
+
+steps:
+  - task: MavenAuthenticate@0
+    inputs:
+      artifactsFeeds: 'snomio'
+
+  - task: Docker@2
+    displayName: 'Login to ACR'
+    inputs:
+      command: login
+      containerRegistry: $(containerRegistry)
+
+  - task: Cache@2
+    displayName: Cache Maven local repo
+    inputs:
+      key: 'maven | "$(Agent.OS)" | **/pom.xml'
+      restoreKeys: |
+        maven | "$(Agent.OS)"
+        maven
+      path: $(mavenCache)
+
+  - task: Cache@2
+    displayName: Cache node_modules
+    inputs:
+      key: 'npm | "$(Agent.OS)" | $(Build.SourcesDirectory)/ui/package.json'
+      path: $(Build.SourcesDirectory)/ui/node_modules
+      cacheHitVar: CACHE_RESTORED
+
+  - task: Maven@3
+    inputs:
+      mavenPomFile: 'pom.xml'
+      options: '-Ddocker.registry=$(dockerRegistry) -Ddocker.image.prefix=$(dockerRepository)'
+      mavenOptions: '$(mavenOptions)'
+      javaHomeOption: 'JDKVersion'
+      jdkVersionOption: '1.11'
+      jdkArchitectureOption: 'x64'
+      publishJUnitResults: true
+      testResultsFiles: '**/surefire-reports/TEST-*.xml'
+      goals: 'compile jib:build'
+
+  # - task: Docker@2
+  #   condition: succeeded()
+  #   displayName: Push image to registry
+  #   inputs:
+  #     containerRegistry: $(containerRegistry)
+  #     repository: $(containerRepository)
+  #     command: push
+  #     tags: |
+  #       $(RealBranchName)

@@ -2,7 +2,7 @@ package org.snomed.snowstorm.core.data.services;
 
 import org.snomed.snowstorm.core.data.services.pojo.CodeSystemConfiguration;
 
-import javax.annotation.PostConstruct;
+import jakarta.annotation.PostConstruct;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -20,7 +20,7 @@ public class CodeSystemConfigurationService {
 
 	public CodeSystemConfiguration findByModule(String moduleId) {
 		for (CodeSystemConfiguration codeSystemConfiguration : configurations) {
-			if (codeSystemConfiguration.getModule().equals(moduleId)) {
+			if (codeSystemConfiguration.module().equals(moduleId)) {
 				return codeSystemConfiguration;
 			}
 		}
@@ -29,8 +29,8 @@ public class CodeSystemConfigurationService {
 	
 	public String getDefaultModuleId(String codeSystemShortName) {
 		for (CodeSystemConfiguration codeSystemConfiguration : configurations) {
-			if (codeSystemConfiguration.getShortName().equalsIgnoreCase(codeSystemShortName)) {
-				return codeSystemConfiguration.getModule();
+			if (codeSystemConfiguration.shortName().equalsIgnoreCase(codeSystemShortName)) {
+				return codeSystemConfiguration.module();
 			}
 		}
 		return null;

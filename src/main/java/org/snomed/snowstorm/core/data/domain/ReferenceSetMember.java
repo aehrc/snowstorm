@@ -9,11 +9,12 @@ import org.springframework.data.elasticsearch.annotations.Document;
 import org.springframework.data.elasticsearch.annotations.Field;
 import org.springframework.data.elasticsearch.annotations.FieldType;
 
-import javax.validation.constraints.NotNull;
-import javax.validation.constraints.Size;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
+
 import java.util.*;
 
-@Document(indexName = "member")
+@Document(indexName = "#{@indexNameProvider.indexName('member')}", createIndex = false)
 public class ReferenceSetMember extends SnomedComponent<ReferenceSetMember> implements ReferenceSetMemberView {
 
 	public interface Fields extends SnomedComponent.Fields {
@@ -58,6 +59,12 @@ public class ReferenceSetMember extends SnomedComponent<ReferenceSetMember> impl
 
 	public interface MRCMAttributeDomainFields {
 		String GROUPED = "grouped";
+	}
+
+	public interface AnnotationFields {
+		String LANGUAGE_CODE = "languageCode";
+		String TYPE_ID = "typeId";
+		String VALUE = "value";
 	}
 
 	@JsonView(value = View.Component.class)

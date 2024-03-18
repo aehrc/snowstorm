@@ -2,10 +2,11 @@ package org.snomed.snowstorm.core.data.domain.review;
 
 import org.springframework.data.annotation.Id;
 import org.springframework.data.elasticsearch.annotations.Document;
+import org.springframework.data.elasticsearch.annotations.Setting;
 
 import java.util.Date;
 
-@Document(indexName = "branch-merge-review")
+@Document(indexName = "#{@indexNameProvider.indexName('branch-merge-review')}", createIndex = false)
 public class MergeReview {
 
 	@Id

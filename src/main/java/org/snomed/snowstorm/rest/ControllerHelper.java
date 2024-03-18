@@ -1,7 +1,7 @@
 package org.snomed.snowstorm.rest;
 
+import com.google.common.base.Strings;
 import io.kaicode.rest.util.branchpathrewrite.BranchPathUriUtil;
-import org.elasticsearch.common.Strings;
 import org.snomed.snowstorm.core.data.domain.ConceptMini;
 import org.snomed.snowstorm.core.data.services.DialectConfigurationService;
 import org.snomed.snowstorm.core.data.services.NotFoundException;
@@ -10,9 +10,9 @@ import org.snomed.snowstorm.core.pojo.BranchTimepoint;
 import org.snomed.snowstorm.core.pojo.LanguageDialect;
 import org.snomed.snowstorm.rest.converter.SearchAfterHelper;
 import org.snomed.snowstorm.rest.pojo.ConceptMiniNestedFsn;
+import org.snomed.snowstorm.rest.pojo.SearchAfterPageRequest;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
-import org.springframework.data.elasticsearch.core.SearchAfterPageRequest;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -23,7 +23,7 @@ import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
-import javax.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletRequest;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;

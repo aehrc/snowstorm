@@ -1,14 +1,13 @@
 package org.snomed.snowstorm.core.data.domain;
 
 import org.snomed.snowstorm.core.data.services.ApiError;
-import org.snomed.snowstorm.core.data.services.pojo.IntegrityIssueReport;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.elasticsearch.annotations.Document;
 
 import java.util.Date;
 import java.util.UUID;
 
-@Document(indexName = "branch-marge")
+@Document(indexName = "#{@indexNameProvider.indexName('branch-marge')}", createIndex = false)
 public class BranchMergeJob {
 
 	@Id

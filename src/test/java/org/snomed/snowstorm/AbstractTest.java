@@ -1,11 +1,11 @@
 package org.snomed.snowstorm;
 
+import co.elastic.clients.elasticsearch._types.query_dsl.MatchAllQuery;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectWriter;
 import com.google.common.collect.Sets;
 import io.kaicode.elasticvc.api.BranchService;
-import org.elasticsearch.index.query.MatchAllQueryBuilder;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -24,9 +24,10 @@ import org.snomed.snowstorm.rest.View;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.data.elasticsearch.client.elc.NativeQuery;
 import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
-import org.springframework.data.elasticsearch.core.query.NativeSearchQueryBuilder;
-import org.springframework.data.elasticsearch.core.query.Query;
+import org.springframework.data.elasticsearch.client.elc.NativeQueryBuilder;
 import org.springframework.jms.annotation.JmsListener;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -96,11 +97,17 @@ public abstract class AbstractTest {
 
 	@AfterEach
 	void deleteAll() throws InterruptedException {
-		branchService.deleteAll();
-		conceptService.deleteAll();
-		codeSystemService.deleteAll();
-		classificationService.deleteAll();
-		permissionService.deleteAll();
+		try {
+			branchService.deleteAll();
+			conceptService.deleteAll();
+			codeSystemService.deleteAll();
+			classificationService.deleteAll();
+			permissionService.deleteAll();
+		} catch (OptimisticLockingFailureException e) {
+			// Try again
+			Thread.sleep(100);
+			deleteAll();
+		}
 	}
 
 	@BeforeAll
@@ -161,9 +168,9 @@ public abstract class AbstractTest {
 		}
 	}
 
-	protected void deleteAllAndRefresh(Class<QueryConcept> clazz) {
-		Query deleteQuery = new NativeSearchQueryBuilder().withQuery(new MatchAllQueryBuilder()).build();
-		elasticsearchOperations.delete(deleteQuery, clazz, elasticsearchOperations.getIndexCoordinatesFor(clazz));
-		elasticsearchOperations.indexOps(clazz).refresh();
+	protected void deleteAllQueryConceptsAndRefresh() {
+		NativeQuery deleteQuery = new NativeQueryBuilder().withQuery(new MatchAllQuery.Builder().build()._toQuery()).build();
+		elasticsearchOperations.delete(deleteQuery, QueryConcept.class, elasticsearchOperations.getIndexCoordinatesFor(QueryConcept.class));
+		elasticsearchOperations.indexOps(QueryConcept.class).refresh();
 	}
 }

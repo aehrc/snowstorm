@@ -10,13 +10,13 @@ import org.springframework.data.elasticsearch.annotations.Document;
 import org.springframework.data.elasticsearch.annotations.Field;
 import org.springframework.data.elasticsearch.annotations.FieldType;
 
+import java.text.DecimalFormat;
 import java.util.*;
-import java.util.stream.Collectors;
 
 /**
  * Represents an active concept with fields to assist logical searching.
  */
-@Document(indexName = "semantic")
+@Document(indexName = "#{@indexNameProvider.indexName('semantic')}", createIndex = false)
 public class QueryConcept extends DomainEntity<QueryConcept> implements FHIRGraphNode {
 
 	public static final String ATTR_TYPE_WILDCARD = "all";
@@ -139,7 +139,7 @@ public class QueryConcept extends DomainEntity<QueryConcept> implements FHIRGrap
 		return GroupedAttributesMapSerializer.serializeFlatMap(getGroupedAttributesMap());
 	}
 
-	public void setAttr(Map attr) {
+	public void setAttr(Map<String, Set<Object>> attr) {
 		this.attr = attr;
 	}
 
@@ -314,10 +314,19 @@ public class QueryConcept extends DomainEntity<QueryConcept> implements FHIRGrap
 					builder.append(type);
 					builder.append("=");
 					for (Object value : attributes.get(type)) {
-						if (!(value instanceof String)) {
+						String valueString;
+						if (value instanceof String) {
+							valueString = (String) value;
+						} else {
 							builder.append("#");
+							if (value instanceof Double || value instanceof Float) {
+								// Maximum decimal places is 6 - See https://confluence.ihtsdotools.org/display/mag/Concrete+Domain+Decimal+Places+and+Rounding
+								valueString = new DecimalFormat("#0.0#####").format(value);
+							} else {
+								valueString = value.toString();
+							}
 						}
-						builder.append(value);
+						builder.append(valueString);
 						builder.append(",");
 					}
 					deleteLastCharacter(builder);
@@ -391,22 +400,20 @@ public class QueryConcept extends DomainEntity<QueryConcept> implements FHIRGrap
 			Set<Object> allValues = new HashSet<>();
 			Set<Object> allNumericValues = new HashSet<>();
 			if (groupedAttributesMap != null) {
-				groupedAttributesMap.forEach((group, attributes) -> {
-					attributes.forEach((type, values) -> {
-						Set<Object> valueList = attributesMap.computeIfAbsent(type, (t) -> new HashSet<>());
-						valueList.addAll(values);
-						// add numeric concrete values to all numeric values field for wildcard query
-						List<Object> numericValues = values.stream().filter(v -> !(v instanceof String)).collect(Collectors.toList());
-						if (!numericValues.isEmpty()) {
-							for (Object numericValue : numericValues) {
-								// to make sure the all_numeric field is set to float data type
-								allNumericValues.add(Float.valueOf(numericValue.toString()));
-							}
-						} else {
-							allValues.addAll(values);
+				groupedAttributesMap.forEach((group, attributes) -> attributes.forEach((type, values) -> {
+					Set<Object> valueList = attributesMap.computeIfAbsent(type, (t) -> new HashSet<>());
+					valueList.addAll(values);
+					// add numeric concrete values to all numeric values field for wildcard query
+					List<Object> numericValues = values.stream().filter(v -> !(v instanceof String)).toList();
+					if (!numericValues.isEmpty()) {
+						for (Object numericValue : numericValues) {
+							// to make sure the all_numeric field is set to float data type
+							allNumericValues.add(Float.valueOf(numericValue.toString()));
 						}
-					});
-				});
+					} else {
+						allValues.addAll(values);
+					}
+				}));
 			}
 			attributesMap.put(ATTR_TYPE_WILDCARD, allValues);
 			if (!allNumericValues.isEmpty()) {

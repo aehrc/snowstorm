@@ -1,7 +1,7 @@
 package org.snomed.snowstorm.core.data.services.postcoordination;
 
+import com.google.common.collect.Sets;
 import io.kaicode.elasticvc.api.VersionControlHelper;
-import org.elasticsearch.common.util.set.Sets;
 import org.snomed.languages.scg.SCGException;
 import org.snomed.languages.scg.domain.model.Attribute;
 import org.snomed.languages.scg.domain.model.AttributeValue;
@@ -207,15 +207,15 @@ public class ExpressionRepositoryService {
 				throwConceptNotFound(attributeValueId);
 			} else {
 				Set<AttributeRange> mandatoryAttributeRanges = context.getBranchMRCM().getMandatoryAttributeRanges(attributeId, ContentType.POSTCOORDINATED);
-				StringBuffer buffer = new StringBuffer();
+				StringBuilder builder = new StringBuilder();
 				for (AttributeRange mandatoryAttributeRange : mandatoryAttributeRanges) {
-					if (buffer.length() > 0) {
-						buffer.append(" OR ");
+					if (!builder.isEmpty()) {
+						builder.append(" OR ");
 					}
-					buffer.append("(").append(mandatoryAttributeRange.getRangeConstraint()).append(")");
+					builder.append("(").append(mandatoryAttributeRange.getRangeConstraint()).append(")");
 				}
 				throw new IllegalArgumentException(format("Value %s is not within the permitted range of attribute %s - %s.",
-						attributeValueFromStore, conceptIdAndFsnTerm.get(attributeId), buffer));
+						attributeValueFromStore, conceptIdAndFsnTerm.get(attributeId), builder));
 			}
 		}
 		context.getTimer().checkpoint("retrieveAttributeValues for " + attributeId + " = " + attributeValueId);

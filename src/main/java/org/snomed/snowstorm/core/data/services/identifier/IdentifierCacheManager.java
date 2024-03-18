@@ -8,8 +8,8 @@ import org.snomed.snowstorm.core.data.services.ServiceException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 
-import javax.annotation.PostConstruct;
-import javax.annotation.PreDestroy;
+import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 import java.util.*;
 
 public class IdentifierCacheManager implements Runnable {
@@ -175,16 +175,13 @@ public class IdentifierCacheManager implements Runnable {
 	}
 	
 	private int determinePrefetchQuantity(ComponentType componentType) {
-		switch (componentType) {
-			case Concept:
-				return conceptIdPrefetchCount;
-			case Description:
-				return conceptIdPrefetchCount * 2;
-			case Relationship:
-				return conceptIdPrefetchCount * 4;
-			default:
-				throw new IllegalArgumentException("Cache does not support prefetching identifiers for " + componentType);
-		}
+        return switch (componentType) {
+            case Concept -> conceptIdPrefetchCount;
+            case Description -> conceptIdPrefetchCount * 2;
+            case Relationship -> conceptIdPrefetchCount * 4;
+            default ->
+                    throw new IllegalArgumentException("Cache does not support prefetching identifiers for " + componentType);
+        };
 	}
 
 	private void waitForLock(IdentifierCache cache) {

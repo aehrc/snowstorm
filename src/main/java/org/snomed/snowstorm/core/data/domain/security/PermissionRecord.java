@@ -11,7 +11,8 @@ import org.springframework.data.elasticsearch.annotations.FieldType;
 
 import java.util.Set;
 
-@Document(indexName = "admin-permission")
+@Document(indexName = "#{@indexNameProvider.indexName('admin-permission')}", createIndex = false)
+
 @JsonPropertyOrder({"role", "path", "global", "userGroups"})
 public class PermissionRecord {
 

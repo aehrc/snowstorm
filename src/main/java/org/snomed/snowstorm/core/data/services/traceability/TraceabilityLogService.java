@@ -1,5 +1,6 @@
 package org.snomed.snowstorm.core.data.services.traceability;
 
+import co.elastic.clients.elasticsearch._types.query_dsl.Query;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -26,7 +27,7 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
 import org.springframework.data.elasticsearch.core.SearchHitsIterator;
 import org.springframework.data.elasticsearch.core.query.FetchSourceFilter;
-import org.springframework.data.elasticsearch.core.query.NativeSearchQueryBuilder;
+import org.springframework.data.elasticsearch.client.elc.NativeQueryBuilder;
 import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
 import org.springframework.stereotype.Service;
 
@@ -37,11 +38,12 @@ import java.util.Set;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
+import static co.elastic.clients.elasticsearch._types.query_dsl.QueryBuilders.bool;
 import static io.kaicode.elasticvc.api.ComponentService.CLAUSE_LIMIT;
 import static io.kaicode.elasticvc.api.VersionControlHelper.LARGE_PAGE;
 import static io.kaicode.elasticvc.domain.Commit.CommitType.CONTENT;
+import static io.kaicode.elasticvc.helper.QueryHelper.termsQuery;
 import static java.lang.Long.parseLong;
-import static org.elasticsearch.index.query.QueryBuilders.termsQuery;
 import static org.snomed.snowstorm.core.data.services.traceability.Activity.ActivityType.CREATE_CODE_SYSTEM_VERSION;
 
 @Service
@@ -78,24 +80,19 @@ public class TraceabilityLogService implements CommitListener {
 
 	@Override
 	public void preCommitCompletion(final Commit commit) throws IllegalStateException {
-
+		if (!enabled) {
+			return;
+		}
 		if (BranchMetadataHelper.isImportingCodeSystemVersion(commit)) {
 			return;
 		}
 
-		Activity.ActivityType activityType = null;
-		switch (commit.getCommitType()) {
-			case CONTENT:
-				activityType = Activity.ActivityType.CONTENT_CHANGE;
-				break;
-			case PROMOTION:
-				activityType = Activity.ActivityType.PROMOTION;
-				break;
-			case REBASE:
-				activityType = Activity.ActivityType.REBASE;
-				break;
-		}
-		if (BranchMetadataHelper.isClassificationCommit(commit)) {
+		Activity.ActivityType activityType = switch (commit.getCommitType()) {
+            case CONTENT -> Activity.ActivityType.CONTENT_CHANGE;
+            case PROMOTION -> Activity.ActivityType.PROMOTION;
+            case REBASE -> Activity.ActivityType.REBASE;
+        };
+        if (BranchMetadataHelper.isClassificationCommit(commit)) {
 			activityType = Activity.ActivityType.CLASSIFICATION_SAVE;
 		}
 		if (BranchMetadataHelper.isCreatingCodeSystemVersion(commit)) {
@@ -239,13 +236,15 @@ public class TraceabilityLogService implements CommitListener {
 		final Set<Long> descriptionIdsToLookup = referencedDescriptions.stream().filter(Predicate.not(componentToConceptIdMap::containsKey)).collect(Collectors.toSet());
 		final Set<Long> relationshipIdsToLookup = referencedRelationships.stream().filter(Predicate.not(componentToConceptIdMap::containsKey)).collect(Collectors.toSet());
 		BranchCriteria branchCriteria = null;
+
 		if (!descriptionIdsToLookup.isEmpty()) {
 			branchCriteria = versionControlHelper.getBranchCriteria(commit.getBranch());
+			Query descriptionQuery = branchCriteria.getEntityBranchCriteria(Description.class);
 			for (List<Long> descriptionIdsSegment : Iterables.partition(descriptionIdsToLookup, CLAUSE_LIMIT)) {
-				try (final SearchHitsIterator<Description> stream = elasticsearchTemplate.searchForStream(new NativeSearchQueryBuilder()
-						.withQuery(branchCriteria.getEntityBranchCriteria(Description.class)
-								.must(termsQuery(Description.Fields.DESCRIPTION_ID, descriptionIdsSegment)))
-						.withFields(Description.Fields.DESCRIPTION_ID, Description.Fields.CONCEPT_ID)
+				try (final SearchHitsIterator<Description> stream = elasticsearchTemplate.searchForStream(new NativeQueryBuilder()
+						.withQuery(bool(b -> b.must(descriptionQuery)
+								.must(termsQuery(Description.Fields.DESCRIPTION_ID, descriptionIdsSegment))))
+						.withSourceFilter(new FetchSourceFilter(new String[]{Description.Fields.DESCRIPTION_ID, Description.Fields.CONCEPT_ID}, null))
 						.withPageable(LARGE_PAGE)
 						.build(), Description.class)) {
 					stream.forEachRemaining(hit -> {
@@ -259,10 +258,12 @@ public class TraceabilityLogService implements CommitListener {
 			if (branchCriteria == null) {
 				branchCriteria = versionControlHelper.getBranchCriteria(commit.getBranch());
 			}
+			Query relationshipQuery = branchCriteria.getEntityBranchCriteria(Relationship.class);
 			for (List<Long> relationshipsIdsSegment : Iterables.partition(relationshipIdsToLookup, CLAUSE_LIMIT)) {
-				try (final SearchHitsIterator<Relationship> stream = elasticsearchTemplate.searchForStream(new NativeSearchQueryBuilder()
-						.withQuery(branchCriteria.getEntityBranchCriteria(Relationship.class)
-								.must(termsQuery(Relationship.Fields.RELATIONSHIP_ID, relationshipsIdsSegment)))
+				try (final SearchHitsIterator<Relationship> stream = elasticsearchTemplate.searchForStream(new NativeQueryBuilder()
+						.withQuery(bool(b -> b
+								.must(relationshipQuery)
+								.must(termsQuery(Relationship.Fields.RELATIONSHIP_ID, relationshipsIdsSegment))))
 						.withSourceFilter(new FetchSourceFilter(new String[]{Relationship.Fields.RELATIONSHIP_ID, Relationship.Fields.SOURCE_ID}, new String[]{}))
 						.withPageable(LARGE_PAGE)
 						.build(), Relationship.class)) {

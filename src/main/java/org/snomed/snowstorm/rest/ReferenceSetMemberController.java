@@ -1,6 +1,7 @@
 package org.snomed.snowstorm.rest;
 
 import com.fasterxml.jackson.annotation.JsonView;
+import com.google.common.collect.Sets;
 import io.kaicode.elasticvc.api.BranchCriteria;
 import io.kaicode.elasticvc.api.VersionControlHelper;
 import io.kaicode.rest.util.branchpathrewrite.BranchPathUriUtil;
@@ -8,12 +9,8 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.apache.commons.lang3.SerializationUtils;
-import org.elasticsearch.common.util.set.Sets;
 import org.snomed.snowstorm.config.Config;
-import org.snomed.snowstorm.core.data.domain.ConceptMini;
-import org.snomed.snowstorm.core.data.domain.Description;
-import org.snomed.snowstorm.core.data.domain.ReferenceSetMember;
-import org.snomed.snowstorm.core.data.domain.ReferenceSetMemberView;
+import org.snomed.snowstorm.core.data.domain.*;
 import org.snomed.snowstorm.core.data.services.ConceptService;
 import org.snomed.snowstorm.core.data.services.DescriptionService;
 import org.snomed.snowstorm.core.data.services.ReferenceSetMemberService;
@@ -35,7 +32,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
-import javax.validation.Valid;
+import jakarta.validation.Valid;
 import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -93,11 +90,12 @@ public class ReferenceSetMemberController {
 
 		// Find refset type
 		BranchCriteria branchCriteria = versionControlHelper.getBranchCriteria(branch);
-		Map<String, String> refsetTypes = memberService.findRefsetTypes(referenceSetIds, branchCriteria, branch);
+		Map<String, String> refsetTypes = memberService.findRefsetTypes(referenceSetIds, branchCriteria);
+		Map<String, ReferenceSetType> configuredTypesMap = memberService.getConfiguredTypesMap();
 		timer.checkpoint("load types (" + referenceSetIds.size() + ")");
 
 		// Load concept minis
-		Map<String, ConceptMini> conceptMinis = conceptService.findConceptMinis(branch, Sets.union(referenceSetIds, new HashSet<>(refsetTypes.values())), languageDialects).getResultsMap();
+		Map<String, ConceptMini> conceptMinis = conceptService.findConceptMinis(branchCriteria, Sets.union(referenceSetIds, new HashSet<>(refsetTypes.values())), languageDialects).getResultsMap();
 		Map<String, ConceptMini> referenceSets = new HashMap<>();
 		for (String referenceSetId : referenceSetIds) {
 			ConceptMini refsetMini = conceptMinis.get(referenceSetId);
@@ -109,6 +107,8 @@ public class ReferenceSetMemberController {
 					if (refsetMini == typeConcept) {
 						typeConcept = SerializationUtils.clone(typeConcept);
 					}
+					// If refset type exists in the Snowstorm RF2 export configuration then add file/fields info to the response
+					typeConcept.addExtraField("fileConfiguration", configuredTypesMap.get(type));
 					refsetMini.addExtraField("referenceSetType", typeConcept);
 				}
 				referenceSets.put(referenceSetId, refsetMini);

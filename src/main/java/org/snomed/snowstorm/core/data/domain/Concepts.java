@@ -40,13 +40,14 @@ public class Concepts {
 	public static final String CONCEPT_MODEL_ATTRIBUTE = "410662002";
 	public static final String CONCEPT_MODEL_OBJECT_ATTRIBUTE = "762705008";
 	public static final String CONCEPT_MODEL_DATA_ATTRIBUTE = "762706009";
-
+	public static final String CONCEPT_ANNOTATION_ATTRIBUTE = "1295447006";
 	public static final String ENTIRE_TERM_CASE_SENSITIVE = "900000000000017005";
 	public static final String CASE_INSENSITIVE = "900000000000448009";
 	public static final String INITIAL_CHARACTER_CASE_INSENSITIVE = "900000000000020002";
 
 	public static final String OWL_EXPRESSION_TYPE_REFERENCE_SET = "762676003";
 	public static final String OWL_AXIOM_REFERENCE_SET = "733073007";
+	public static final String ANNOTATION_REFERENCE_SET = "1292992004";
 	public static final String LATERALIZABLE_BODY_STRUCTURE_REFERENCE_SET = "723264001";
 	public static final String DEFINING_RELATIONSHIP = "900000000000006009";
 	public static final String STATED_RELATIONSHIP = "900000000000010007";

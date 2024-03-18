@@ -1,10 +1,10 @@
 package org.snomed.snowstorm.core.data.services;
 
+import co.elastic.clients.json.JsonData;
 import com.google.common.collect.Lists;
 import io.kaicode.elasticvc.api.BranchService;
 import io.kaicode.elasticvc.api.CommitListener;
 import io.kaicode.elasticvc.domain.Commit;
-import org.elasticsearch.index.query.QueryBuilders;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -23,10 +23,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
-import org.springframework.data.elasticsearch.core.ElasticsearchRestTemplate;
 import org.springframework.data.elasticsearch.core.SearchHit;
 import org.springframework.data.elasticsearch.core.SearchHits;
-import org.springframework.data.elasticsearch.core.query.NativeSearchQueryBuilder;
+import org.springframework.data.elasticsearch.client.elc.NativeQueryBuilder;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.context.junit.jupiter.SpringExtension;
 
@@ -35,7 +34,8 @@ import java.util.stream.Collectors;
 
 import static io.kaicode.elasticvc.api.ComponentService.LARGE_PAGE;
 import static java.lang.Long.parseLong;
-import static org.elasticsearch.index.query.QueryBuilders.*;
+import static co.elastic.clients.elasticsearch._types.query_dsl.QueryBuilders.*;
+import static io.kaicode.elasticvc.helper.QueryHelper.*;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.snomed.snowstorm.core.data.domain.Concepts.*;
 
@@ -62,7 +62,7 @@ class SemanticIndexUpdateServiceTest extends AbstractTest {
 	private ConceptUpdateHelper conceptUpdateHelper;
 
 	@Autowired
-	private ElasticsearchRestTemplate elasticsearchTemplate;
+	private ElasticsearchOperations elasticsearchTemplate;
 
 	@Autowired
 	private ReferenceSetMemberService referenceSetMemberService;
@@ -88,10 +88,10 @@ class SemanticIndexUpdateServiceTest extends AbstractTest {
 		assertEquals(MRCMUpdateService.class, commitListeners.get(3).getClass());
 		assertEquals(BranchClassificationStatusService.class, commitListeners.get(4).getClass());
 		assertEquals(RefsetDescriptorUpdaterService.class, commitListeners.get(5).getClass());
-		assertEquals(TraceabilityLogService.class, commitListeners.get(6).getClass());
-		assertEquals(IntegrityService.class, commitListeners.get(7).getClass());
-		assertEquals(MultiSearchService.class, commitListeners.get(8).getClass());
-		assertEquals(ECLPreprocessingService.class, commitListeners.get(9).getClass());
+		assertEquals(IntegrityService.class, commitListeners.get(6).getClass());
+		assertEquals(MultiSearchService.class, commitListeners.get(7).getClass());
+		assertEquals(ECLPreprocessingService.class, commitListeners.get(8).getClass());
+		assertEquals(TraceabilityLogService.class, commitListeners.get(10).getClass());
 	}
 
 	@Test
@@ -250,10 +250,10 @@ class SemanticIndexUpdateServiceTest extends AbstractTest {
 
 		// Extreme hack, without version control, to break the semantic index
 		// Remove attributes from existing semantic entry
-		final SearchHit<QueryConcept> hit = elasticsearchTemplate.searchOne(new NativeSearchQueryBuilder()
-				.withQuery(QueryBuilders.boolQuery()
+		final SearchHit<QueryConcept> hit = elasticsearchTemplate.searchOne(new NativeQueryBuilder()
+				.withQuery(bool(b -> b
 						.must(termQuery(QueryConcept.Fields.CONCEPT_ID_FORM, hamPizza.getId() + "_i"))
-						.mustNot(existsQuery("end"))
+						.mustNot(existsQuery("end")))
 				).build(), QueryConcept.class);
 		assertNotNull(hit);
 		QueryConcept queryConcept = hit.getContent();
@@ -810,13 +810,13 @@ class SemanticIndexUpdateServiceTest extends AbstractTest {
 
 		// Delete all documents in semantic index and rebuild
 
-		List<QueryConcept> queryConcepts = elasticsearchTemplate.search(new NativeSearchQueryBuilder().build(), QueryConcept.class)
+		List<QueryConcept> queryConcepts = elasticsearchTemplate.search(new NativeQueryBuilder().build(), QueryConcept.class)
 				.stream().map(SearchHit::getContent).collect(Collectors.toList());
 		assertEquals(5, queryConcepts.size());
 
-		deleteAllAndRefresh(QueryConcept.class);
+		deleteAllQueryConceptsAndRefresh();
 
-		queryConcepts = elasticsearchTemplate.search(new NativeSearchQueryBuilder().build(), QueryConcept.class)
+		queryConcepts = elasticsearchTemplate.search(new NativeQueryBuilder().build(), QueryConcept.class)
 				.stream().map(SearchHit::getContent).collect(Collectors.toList());
 		assertEquals(0, queryConcepts.size());
 
@@ -1085,9 +1085,7 @@ class SemanticIndexUpdateServiceTest extends AbstractTest {
 				// The data type is String for 396070081 but actual value is an integer
 				.addRelationship(new Relationship("4332956027", null, true, "900000000000207008", "34020007",
 						"#10", 1, "396070081", "900000000000011006", "900000000000451002")));
-		Exception exception = assertThrows(IllegalStateException.class, () -> {
-			simulateRF2Import(path, concepts);
-		});
+		Exception exception = assertThrows(IllegalStateException.class, () -> simulateRF2Import(path, concepts));
 		assertEquals("Concrete value 10 with data type DECIMAL in relationship is not matching data type STRING defined in the MRCM for attribute 396070081",
 				exception.getMessage());
 	}
@@ -1115,9 +1113,7 @@ class SemanticIndexUpdateServiceTest extends AbstractTest {
 		concepts.add(new Concept("34020007").addRelationship(new Relationship(UUID.randomUUID().toString(), ISA, "34020006"))
 				.addRelationship(new Relationship("3332956025", null, true, "900000000000207008", "34020007",
 						"#10.01", 1, "396070082", "900000000000011006", "900000000000451002")));
-		Exception exception = assertThrows(IllegalStateException.class, () -> {
-			simulateRF2Import(path, concepts);
-		});
+		Exception exception = assertThrows(IllegalStateException.class, () -> simulateRF2Import(path, concepts));
 		assertEquals("Concrete value 10.01 with data type DECIMAL in relationship is not matching data type INTEGER defined in the MRCM for attribute 396070082",
 				exception.getMessage());
 	}
@@ -1150,8 +1146,10 @@ class SemanticIndexUpdateServiceTest extends AbstractTest {
 
 		// add a value with decimal for 396070080 attribute
 		concepts.add(new Concept("34020009").addRelationship(new Relationship(UUID.randomUUID().toString(), ISA, "34020006"))
-				.addRelationship(new Relationship("3332955025", null, true, "900000000000207008",
-						"34020009", "#100.000005", 1, "396070080", "900000000000011006", "900000000000451002")));
+				.addRelationship(new Relationship("34900001020", null, true, "900000000000207008",
+						"34020009", "#100.000005", 1, "396070080", "900000000000011006", "900000000000451002"))
+				.addRelationship(new Relationship("34900002020", null, true, "900000000000207008",
+						"34020009", "#0.0005", 1, "396070080", "900000000000011006", "900000000000451002")));
 		// Use low level component save to prevent effectiveTimes being stripped by concept service
 		simulateRF2Import(path, concepts);
 
@@ -1193,14 +1191,15 @@ class SemanticIndexUpdateServiceTest extends AbstractTest {
 		// range queries
 		assertEquals(2, queryService.search(queryService.createQueryBuilder(false).ecl("*:396070080 >= #50"), path, PAGE_REQUEST).getTotalElements());
 		assertEquals(1, queryService.search(queryService.createQueryBuilder(false).ecl("*:396070080 > #50"), path, PAGE_REQUEST).getTotalElements());
-		assertEquals(0, queryService.search(queryService.createQueryBuilder(false).ecl("*:396070080 < #50"), path, PAGE_REQUEST).getTotalElements());
-		assertEquals(1, queryService.search(queryService.createQueryBuilder(false).ecl("*:396070080 <= #50"), path, PAGE_REQUEST).getTotalElements());
+		assertEquals(1, queryService.search(queryService.createQueryBuilder(false).ecl("*:396070080 < #50"), path, PAGE_REQUEST).getTotalElements());
+		assertEquals(2, queryService.search(queryService.createQueryBuilder(false).ecl("*:396070080 <= #50"), path, PAGE_REQUEST).getTotalElements());
 
 		// make sure range query is not done alphabetically but based on the number value
 		assertEquals(2, queryService.search(queryService.createQueryBuilder(false).ecl("*:396070080 >= #6"), path, PAGE_REQUEST).getTotalElements());
 
 		// Not equal to query
-		assertEquals(0, queryService.search(queryService.createQueryBuilder(false).ecl("<<34020009:396070080 != #100.000005"), path, PAGE_REQUEST).getTotalElements());
+		assertEquals(1, queryService.search(queryService.createQueryBuilder(false).ecl("<<34020009:396070080 = #100.000005"), path, PAGE_REQUEST).getTotalElements());
+		assertEquals(1, queryService.search(queryService.createQueryBuilder(false).ecl("<<34020009: [1..1] * = #0.0005"), path, PAGE_REQUEST).getTotalElements());
 		assertEquals(1, queryService.search(queryService.createQueryBuilder(false).ecl("*:396070080 != #50"), path, PAGE_REQUEST).getTotalElements());
 		assertEquals(2, queryService.search(queryService.createQueryBuilder(false).ecl("*:396070080 != #10"), path, PAGE_REQUEST).getTotalElements());
 		assertEquals(0, queryService.search(queryService.createQueryBuilder(false).ecl("*:396070081 != \"123test\""), path, PAGE_REQUEST).getTotalElements());
@@ -1310,8 +1309,9 @@ class SemanticIndexUpdateServiceTest extends AbstractTest {
 
 		// Assert
 		// No unnecessary semantic index changes are made.
-		SearchHits<QueryConcept> semanticChanges =
-				elasticsearchOperations.search(new NativeSearchQueryBuilder().withQuery(rangeQuery("start").gte(now.getTime())).build(), QueryConcept.class);
+		SearchHits<QueryConcept> semanticChanges = elasticsearchOperations.search(new NativeQueryBuilder()
+				.withQuery(range().field("start").gte(JsonData.of(now.getTime())).build()._toQuery())
+				.build(), QueryConcept.class);
 		assertEquals(0, semanticChanges.getTotalHits());
 
 		// Then..
@@ -1329,7 +1329,9 @@ class SemanticIndexUpdateServiceTest extends AbstractTest {
 
 		// Assert
 		// No unnecessary semantic index changes are made.
-		semanticChanges = elasticsearchOperations.search(new NativeSearchQueryBuilder().withQuery(rangeQuery("start").gte(now.getTime())).build(), QueryConcept.class);
+		semanticChanges = elasticsearchOperations.search(new NativeQueryBuilder()
+				.withQuery(range().field("start").gte(JsonData.of(now.getTime())).build()._toQuery())
+				.build(), QueryConcept.class);
 		assertEquals(0, semanticChanges.getTotalHits());
 	}
 

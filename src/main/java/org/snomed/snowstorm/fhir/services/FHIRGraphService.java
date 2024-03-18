@@ -1,23 +1,24 @@
 package org.snomed.snowstorm.fhir.services;
 
+import co.elastic.clients.elasticsearch._types.query_dsl.BoolQuery;
 import io.kaicode.elasticvc.api.VersionControlHelper;
-import org.elasticsearch.index.query.BoolQueryBuilder;
+
 import org.snomed.snowstorm.core.data.domain.QueryConcept;
 import org.snomed.snowstorm.fhir.domain.FHIRCodeSystemVersion;
 import org.snomed.snowstorm.fhir.domain.FHIRConcept;
 import org.snomed.snowstorm.fhir.domain.FHIRGraphNode;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.data.elasticsearch.core.ElasticsearchRestTemplate;
-import org.springframework.data.elasticsearch.core.query.NativeSearchQuery;
-import org.springframework.data.elasticsearch.core.query.NativeSearchQueryBuilder;
+import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
+import org.springframework.data.elasticsearch.client.elc.NativeQuery;
+import org.springframework.data.elasticsearch.client.elc.NativeQueryBuilder;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.stream.Collectors;
 
-import static org.elasticsearch.index.query.QueryBuilders.boolQuery;
-import static org.elasticsearch.index.query.QueryBuilders.termQuery;
+import static co.elastic.clients.elasticsearch._types.query_dsl.QueryBuilders.bool;
+import static io.kaicode.elasticvc.helper.QueryHelper.termQuery;
 
 @Service
 /*
@@ -32,75 +33,59 @@ public class FHIRGraphService {
 	private VersionControlHelper snomedVersionControlHelper;
 
 	@Autowired
-	private ElasticsearchRestTemplate elasticsearchTemplate;
+	private ElasticsearchOperations elasticsearchTemplate;
 
 	/**
 	 * Returns true if codeA is an ancestor of codeB
 	 */
 	public boolean subsumes(String codeA, String codeB, FHIRCodeSystemVersion codeSystemVersion) {
 		GraphCriteria graphCriteria = getGraphCriteria(codeSystemVersion, PageRequest.of(0, 1));
-		graphCriteria.getCriteria()
+		graphCriteria.criteria()
 				.must(termQuery(graphCriteria.getCodeField(), codeB))
 				.must(termQuery(ANCESTORS, codeA));
 
-		return elasticsearchTemplate.search(graphCriteria.getQuery(), graphCriteria.getNodeClass()).hasSearchHits();
+		return elasticsearchTemplate.search(graphCriteria.getQuery(), graphCriteria.nodeClass()).hasSearchHits();
 	}
 
 	public List<String> findChildren(String code, FHIRCodeSystemVersion codeSystemVersion, PageRequest page) {
 		GraphCriteria graphCriteria = getGraphCriteria(codeSystemVersion, page);
-		graphCriteria.getCriteria()
+		graphCriteria.criteria()
 				.must(termQuery(PARENTS, code));
 
-		return elasticsearchTemplate.search(graphCriteria.getQuery(), graphCriteria.getNodeClass())
+		return elasticsearchTemplate.search(graphCriteria.getQuery(), graphCriteria.nodeClass())
 				.get().map(hit -> hit.getContent().getCode()).collect(Collectors.toList());
 	}
 
 	private GraphCriteria getGraphCriteria(FHIRCodeSystemVersion codeSystemVersion, PageRequest page) {
 		if (codeSystemVersion.isSnomed()) {
-			BoolQueryBuilder criteria = snomedVersionControlHelper.getBranchCriteria(codeSystemVersion.getSnomedBranch()).getEntityBranchCriteria(QueryConcept.class);
+			BoolQuery.Builder criteria = bool().must(snomedVersionControlHelper.getBranchCriteria(codeSystemVersion.getSnomedBranch()).getEntityBranchCriteria(QueryConcept.class));
 			criteria.must(termQuery(QueryConcept.Fields.STATED, false));
 			return new GraphCriteria(QueryConcept.class, criteria, page);
 		} else {
-			BoolQueryBuilder criteria = boolQuery();
+			BoolQuery.Builder criteria = bool();
 			criteria.must(termQuery("codeSystemVersion", codeSystemVersion.getId()));
 			return new GraphCriteria(FHIRConcept.class, criteria, page);
 		}
 	}
 
-	private static class GraphCriteria {
+	private record GraphCriteria(Class<? extends FHIRGraphNode> nodeClass, BoolQuery.Builder criteria, PageRequest page) {
 
-		private final Class<? extends FHIRGraphNode> nodeClass;
-		private final BoolQueryBuilder criteria;
-		private final PageRequest page;
-
-		public GraphCriteria(Class<? extends FHIRGraphNode> nodeClass, BoolQueryBuilder criteria, PageRequest page) {
-			this.nodeClass = nodeClass;
-			this.criteria = criteria;
-			this.page = page;
-		}
-
-		public Class<? extends FHIRGraphNode> getNodeClass() {
-			return nodeClass;
-		}
 
 		public String getCodeField() {
-			try {
-				return nodeClass.getDeclaredConstructor().newInstance().getCodeField();
-			} catch (ReflectiveOperationException e) {
-				throw new RuntimeException(e);
+				try {
+					return nodeClass.getDeclaredConstructor().newInstance().getCodeField();
+				} catch (ReflectiveOperationException e) {
+					throw new RuntimeException(e);
+				}
+			}
+
+
+		public NativeQuery getQuery() {
+				NativeQueryBuilder searchQueryBuilder = new NativeQueryBuilder();
+				searchQueryBuilder.withQuery(criteria().build()._toQuery());
+				searchQueryBuilder.withPageable(page);
+				return searchQueryBuilder.build();
 			}
 		}
-
-		public BoolQueryBuilder getCriteria() {
-			return criteria;
-		}
-
-		public NativeSearchQuery getQuery() {
-			NativeSearchQueryBuilder searchQueryBuilder = new NativeSearchQueryBuilder();
-			searchQueryBuilder.withQuery(getCriteria());
-			searchQueryBuilder.withPageable(page);
-			return searchQueryBuilder.build();
-		}
-	}
 
 }

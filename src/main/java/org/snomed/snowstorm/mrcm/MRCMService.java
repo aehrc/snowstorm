@@ -19,9 +19,10 @@ import org.snomed.snowstorm.core.util.TimerUtil;
 import org.snomed.snowstorm.mrcm.model.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.data.elasticsearch.core.ElasticsearchRestTemplate;
+import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
 import org.springframework.data.elasticsearch.core.SearchHitsIterator;
-import org.springframework.data.elasticsearch.core.query.NativeSearchQueryBuilder;
+import org.springframework.data.elasticsearch.client.elc.NativeQueryBuilder;
+import org.springframework.data.elasticsearch.core.query.FetchSourceFilter;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
 
@@ -31,7 +32,8 @@ import java.util.stream.Collectors;
 
 import static io.kaicode.elasticvc.api.VersionControlHelper.LARGE_PAGE;
 import static java.lang.Long.parseLong;
-import static org.elasticsearch.index.query.QueryBuilders.*;
+import static co.elastic.clients.elasticsearch._types.query_dsl.QueryBuilders.*;
+import static io.kaicode.elasticvc.helper.QueryHelper.*;
 import static org.snomed.snowstorm.config.Config.DEFAULT_LANGUAGE_DIALECTS;
 import static org.snomed.snowstorm.mrcm.model.MRCM.IS_A_ATTRIBUTE_DOMAIN;
 
@@ -54,7 +56,7 @@ public class MRCMService {
 	private VersionControlHelper versionControlHelper;
 
 	@Autowired
-	private ElasticsearchRestTemplate elasticsearchTemplate;
+	private ElasticsearchOperations elasticsearchTemplate;
 
 	private final Logger logger = LoggerFactory.getLogger(getClass());
 
@@ -122,10 +124,10 @@ public class MRCMService {
 			allAncestors.addAll(parentIds);
 
 			// Find matching domains
-			Set<Domain> matchedDomains = branchMRCM.getDomains().stream().filter(domain -> {
+			Set<Domain> matchedDomains = branchMRCM.domains().stream().filter(domain -> {
 				Constraint constraint = proximalPrimitiveModeling ? domain.getProximalPrimitiveConstraint() : domain.getDomainConstraint();
-				Long domainConceptId = parseLong(constraint.getConceptId());
-				Operator operator = constraint.getOperator();
+				Long domainConceptId = parseLong(constraint.conceptId());
+				Operator operator = constraint.operator();
 				if ((operator == null || operator == Operator.descendantorselfof)
 						&& parentIds.contains(domainConceptId)) {
 					return true;
@@ -136,7 +138,7 @@ public class MRCMService {
 			Set<String> domainReferenceComponents = matchedDomains.stream().map(Domain::getReferencedComponentId).collect(Collectors.toSet());
 
 			// Find applicable attributes
-			attributeDomains.addAll(branchMRCM.getAttributeDomains().stream()
+			attributeDomains.addAll(branchMRCM.attributeDomains().stream()
 					.filter(attributeDomain -> attributeDomain.getContentType().ruleAppliesToContentType(contentType)
 							&& domainReferenceComponents.contains(attributeDomain.getDomainId())).collect(Collectors.toList()));
 		}
@@ -155,7 +157,7 @@ public class MRCMService {
 
 	private void addAttributeRangesToExtraConceptMiniFields(final ConceptMini attributeConceptMini, final ContentType contentType, final MRCM branchMRCM) {
 		attributeConceptMini.addExtraField("attributeRange",
-				branchMRCM.getAttributeRanges().stream()
+				branchMRCM.attributeRanges().stream()
 						.filter(attributeRange -> attributeRange.getReferencedComponentId().equals(attributeConceptMini.getConceptId()))
 						.filter(attributeRange -> contentType.ruleAppliesToContentType(attributeRange.getContentType()))
 						.collect(Collectors.toList()));
@@ -223,13 +225,13 @@ public class MRCMService {
 
 		BranchCriteria branchCriteria = versionControlHelper.getBranchCriteria(branch);
 
-		NativeSearchQueryBuilder queryConceptQuery = new NativeSearchQueryBuilder()
-				.withQuery(boolQuery()
+		NativeQueryBuilder queryConceptQuery = new NativeQueryBuilder()
+				.withQuery(bool(b -> b
 						.must(branchCriteria.getEntityBranchCriteria(QueryConcept.class))
 						.must(termQuery(QueryConcept.Fields.STATED, false))
-						.filter(termsQuery(QueryConcept.Fields.CONCEPT_ID, remainingAttributes))
+						.filter(termsQuery(QueryConcept.Fields.CONCEPT_ID, remainingAttributes)))
 				)
-				.withFields(QueryConcept.Fields.CONCEPT_ID, QueryConcept.Fields.PARENTS)
+				.withSourceFilter(new FetchSourceFilter(new String[]{QueryConcept.Fields.CONCEPT_ID, QueryConcept.Fields.PARENTS}, null))
 				.withPageable(LARGE_PAGE);
 		try (SearchHitsIterator<QueryConcept> queryConcepts = elasticsearchTemplate.searchForStream(queryConceptQuery.build(), QueryConcept.class)) {
 			queryConcepts.forEachRemaining(hit -> {

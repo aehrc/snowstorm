@@ -12,14 +12,15 @@ import org.springframework.data.elasticsearch.annotations.Document;
 import org.springframework.data.elasticsearch.annotations.Field;
 import org.springframework.data.elasticsearch.annotations.FieldType;
 
-import javax.validation.constraints.NotNull;
-import javax.validation.constraints.Size;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
+
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
-@Document(indexName = "description")
+@Document(indexName = "#{@indexNameProvider.indexName('description')}", createIndex = false)
 public class Description extends SnomedComponent<Description> implements SnomedComponentWithInactivationIndicator, SnomedComponentWithAssociations {
 
 	private static final Pattern TAG_PATTERN = Pattern.compile(".+ \\((.+)\\)");
@@ -545,9 +546,9 @@ public class Description extends SnomedComponent<Description> implements SnomedC
 			return true;
 		}
 
-		if (term != null ? !term.equals(that.term) : that.term != null) return false;
-		if (languageCode != null ? !languageCode.equals(that.languageCode) : that.languageCode != null) return false;
-		return typeId != null ? typeId.equals(that.typeId) : that.typeId == null;
+		if (!Objects.equals(term, that.term)) return false;
+		if (!Objects.equals(languageCode, that.languageCode)) return false;
+		return Objects.equals(typeId, that.typeId);
 	}
 
 	@Override

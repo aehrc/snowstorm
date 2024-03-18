@@ -1,11 +1,11 @@
 package org.snomed.snowstorm.ecl.domain.expressionconstraint;
 
+import co.elastic.clients.elasticsearch._types.query_dsl.BoolQuery;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import io.kaicode.elasticvc.api.BranchCriteria;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongLinkedOpenHashSet;
-import org.elasticsearch.index.query.BoolQueryBuilder;
-import org.elasticsearch.index.query.QueryBuilders;
+
 import org.snomed.langauges.ecl.domain.ConceptReference;
 import org.snomed.langauges.ecl.domain.expressionconstraint.ExpressionConstraint;
 import org.snomed.langauges.ecl.domain.expressionconstraint.SubExpressionConstraint;
@@ -28,7 +28,8 @@ import java.util.stream.Collectors;
 
 import static com.google.common.collect.Sets.newHashSet;
 import static java.lang.Long.parseLong;
-import static org.elasticsearch.index.query.QueryBuilders.*;
+import static co.elastic.clients.elasticsearch._types.query_dsl.QueryBuilders.*;
+import static io.kaicode.elasticvc.helper.QueryHelper.*;
 import static org.snomed.snowstorm.core.util.CollectionUtils.orEmpty;
 
 public class SSubExpressionConstraint extends SubExpressionConstraint implements SExpressionConstraint {
@@ -161,7 +162,7 @@ public class SSubExpressionConstraint extends SubExpressionConstraint implements
 
 	@Override
 	public void addCriteria(RefinementBuilder refinementBuilder, Consumer<List<Long>> filteredOrSupplementedContentCallback, boolean triedCache) {
-		BoolQueryBuilder query = refinementBuilder.getQuery();
+		BoolQuery.Builder query = refinementBuilder.getQueryBuilder();
 
 		if (isAnyFiltersOrSupplements()) {
 			// Fetching required
@@ -193,7 +194,7 @@ public class SSubExpressionConstraint extends SubExpressionConstraint implements
 				if (getConceptFilterConstraints() != null) {
 					Set<Long> results = eclContentService.applyConceptFilters(getConceptFilterConstraints(), conceptIdSortedSet, branchCriteria, stated);
 					// Need to keep the original order
-					conceptIdSortedSet = new LongLinkedOpenHashSet(conceptIdSortedSet.stream().filter(c -> results.contains(c)).collect(Collectors.toList()));
+					conceptIdSortedSet = new LongLinkedOpenHashSet(conceptIdSortedSet.stream().filter(results::contains).collect(Collectors.toList()));
 				}
 				if (getDescriptionFilterConstraints() != null) {
 					// For each filter constraint all sub-filters (term, language, etc) must apply.
@@ -223,12 +224,12 @@ public class SSubExpressionConstraint extends SubExpressionConstraint implements
 	 * Has to prefetch conceptIds in some scenarios for example nested constraints or member query.
 	 * These are returned by the method to show that further fetches can be avoided.
 	 */
-	private Collection<Long> doAddCriteria(RefinementBuilder refinementBuilder, BoolQueryBuilder query) {
+	private Collection<Long> doAddCriteria(RefinementBuilder refinementBuilder, BoolQuery.Builder queryBuilder) {
 		if (conceptId != null) {
 			if (operator != null) {
 				return applyConceptCriteriaWithOperator(Collections.singleton(parseLong(conceptId)), operator, refinementBuilder);
 			} else {
-				query.must(QueryBuilders.termQuery(QueryConcept.Fields.CONCEPT_ID, conceptId));
+				queryBuilder.must(termQuery(QueryConcept.Fields.CONCEPT_ID, conceptId));
 			}
 		} else if (nestedExpressionConstraint != null) {
 			Optional<Page<Long>> conceptIdsOptional = ((SExpressionConstraint)nestedExpressionConstraint).select(refinementBuilder);
@@ -243,26 +244,29 @@ public class SSubExpressionConstraint extends SubExpressionConstraint implements
 				conceptIds = Collections.singletonList(ConceptSelectorHelper.MISSING_LONG);
 				matchesNothing = true;
 			}
-			BoolQueryBuilder filterQuery = boolQuery();
-			query.filter(filterQuery);
+			BoolQuery.Builder filterQueryBuilder = bool();
 			if (operator != null) {
-				SubRefinementBuilder filterRefinementBuilder = new SubRefinementBuilder(refinementBuilder, filterQuery);
-				return applyConceptCriteriaWithOperator(conceptIds, operator, filterRefinementBuilder);
+				SubRefinementBuilder filterRefinementBuilder = new SubRefinementBuilder(refinementBuilder, filterQueryBuilder);
+				Set<Long> results = applyConceptCriteriaWithOperator(conceptIds, operator, filterRefinementBuilder);
+				queryBuilder.filter(filterQueryBuilder.build()._toQuery());
+				return results;
 			} else {
-				filterQuery.must(termsQuery(QueryConcept.Fields.CONCEPT_ID, conceptIds));
+				filterQueryBuilder.must(termsQuery(QueryConcept.Fields.CONCEPT_ID, conceptIds));
+				queryBuilder.filter(filterQueryBuilder.build()._toQuery());
 				return matchesNothing ? Collections.emptyList() : conceptIds;
 			}
+
 		} else if (operator == Operator.memberOf) {
 			// Member of wildcard (any reference set)
-			query.must(existsQuery(QueryConcept.Fields.REFSETS));
+			queryBuilder.must(existsQuery(QueryConcept.Fields.REFSETS));
 		} else if (operator == Operator.descendantof || operator == Operator.childof) {
 			// Descendant of wildcard / Child of wildcard = anything but root
-			query.mustNot(termQuery(QueryConcept.Fields.CONCEPT_ID, Concepts.SNOMEDCT_ROOT));
+			queryBuilder.mustNot(termQuery(QueryConcept.Fields.CONCEPT_ID, Concepts.SNOMEDCT_ROOT));
 		} else if (operator == Operator.ancestorof || operator == Operator.parentof) {
 			// Ancestor of wildcard / Parent of wildcard = all non-leaf concepts
 			Collection<Long> conceptsWithDescendants = refinementBuilder.getEclContentService().findRelationshipDestinationIds(
 					null, Collections.singletonList(parseLong(Concepts.ISA)), refinementBuilder.getBranchCriteria(), refinementBuilder.isStated());
-			query.must(termsQuery(QueryConcept.Fields.CONCEPT_ID, conceptsWithDescendants));
+			queryBuilder.must(termsQuery(QueryConcept.Fields.CONCEPT_ID, conceptsWithDescendants));
 		}
 		// Else Wildcard! which has no constraints
 		// <<!* and >>!* also match everything
@@ -270,64 +274,57 @@ public class SSubExpressionConstraint extends SubExpressionConstraint implements
 	}
 
 	private Set<Long> applyConceptCriteriaWithOperator(Collection<Long> conceptIds, Operator operator, RefinementBuilder refinementBuilder) {
-		BoolQueryBuilder query = refinementBuilder.getQuery();
+		BoolQuery.Builder queryBuilder = refinementBuilder.getQueryBuilder();
 		ECLContentService conceptSelector = refinementBuilder.getEclContentService();
 		BranchCriteria branchCriteria = refinementBuilder.getBranchCriteria();
 		boolean stated = refinementBuilder.isStated();
 
-		switch (operator) {
-			case childof:
-				// <!
-				query.must(termsQuery(QueryConcept.Fields.PARENTS, conceptIds));
-				break;
-			case childorselfof:
-				// <<!
-				query.must(
-						boolQuery()
-								.should(termsQuery(QueryConcept.Fields.PARENTS, conceptIds))
-								.should(termsQuery(QueryConcept.Fields.CONCEPT_ID, conceptIds))
-				);
-				break;
-			case descendantof:
-				// <
-				query.must(termsQuery(QueryConcept.Fields.ANCESTORS, conceptIds));
-				break;
-			case descendantorselfof:
-				// <<
-				query.must(
-						boolQuery()
-								.should(termsQuery(QueryConcept.Fields.ANCESTORS, conceptIds))
-								.should(termsQuery(QueryConcept.Fields.CONCEPT_ID, conceptIds))
-				);
-				break;
-			case parentof:
-				// >!
-				query.must(termsQuery(QueryConcept.Fields.CONCEPT_ID, retrieveAllParents(conceptIds, branchCriteria, stated, conceptSelector)));
-				break;
-			case parentorselfof:
-				// >>!
-				query.must(
-						boolQuery()
-								.should(termsQuery(QueryConcept.Fields.CONCEPT_ID, retrieveAllParents(conceptIds, branchCriteria, stated, conceptSelector)))
-								.should(termsQuery(QueryConcept.Fields.CONCEPT_ID, conceptIds))
-				);
-				break;
-			case ancestorof:
-				// >
-				query.must(termsQuery(QueryConcept.Fields.CONCEPT_ID, retrieveAllAncestors(conceptIds, branchCriteria, stated, conceptSelector)));
-				break;
-			case ancestororselfof:
-				// >>
-				query.must(
-						boolQuery()
-								.should(termsQuery(QueryConcept.Fields.CONCEPT_ID, retrieveAllAncestors(conceptIds, branchCriteria, stated, conceptSelector)))
-								.should(termsQuery(QueryConcept.Fields.CONCEPT_ID, conceptIds))
-				);
-				break;
-			case memberOf:
-				// ^
-				query.must(termsQuery(QueryConcept.Fields.REFSETS, conceptIds));
-		}
+        switch (operator) {
+            case childof ->
+                // <!
+                    queryBuilder.must(termsQuery(QueryConcept.Fields.PARENTS, conceptIds));
+            case childorselfof ->
+                // <<!
+                    queryBuilder.must(
+                            bool(b -> b
+                                    .should(termsQuery(QueryConcept.Fields.PARENTS, conceptIds))
+                                    .should(termsQuery(QueryConcept.Fields.CONCEPT_ID, conceptIds)))
+                    );
+            case descendantof ->
+                // <
+                    queryBuilder.must(termsQuery(QueryConcept.Fields.ANCESTORS, conceptIds));
+            case descendantorselfof ->
+                // <<
+                    queryBuilder.must(
+                            bool(b -> b
+                                    .should(termsQuery(QueryConcept.Fields.ANCESTORS, conceptIds))
+                                    .should(termsQuery(QueryConcept.Fields.CONCEPT_ID, conceptIds)))
+                    );
+            case parentof ->
+                // >!
+                    queryBuilder.must(termsQuery(QueryConcept.Fields.CONCEPT_ID, retrieveAllParents(conceptIds, branchCriteria, stated, conceptSelector)));
+            case parentorselfof ->
+                // >>!
+                    queryBuilder.must(
+                            bool(b -> b
+                                    .should(termsQuery(QueryConcept.Fields.CONCEPT_ID, retrieveAllParents(conceptIds, branchCriteria, stated, conceptSelector)))
+                                    .should(termsQuery(QueryConcept.Fields.CONCEPT_ID, conceptIds)))
+                    );
+            case ancestorof ->
+                // >
+                    queryBuilder.must(termsQuery(QueryConcept.Fields.CONCEPT_ID, retrieveAllAncestors(conceptIds, branchCriteria, stated, conceptSelector)));
+            case ancestororselfof ->
+                // >>
+                    queryBuilder.must(
+                            bool(b -> b
+                                    .should(termsQuery(QueryConcept.Fields.CONCEPT_ID, retrieveAllAncestors(conceptIds, branchCriteria, stated, conceptSelector)))
+                                    .should(termsQuery(QueryConcept.Fields.CONCEPT_ID, conceptIds)))
+                    );
+            case memberOf -> {
+                // ^
+		queryBuilder.must(termsQuery(QueryConcept.Fields.REFSETS, conceptIds));
+            }
+        }
 		return null;
 	}
 

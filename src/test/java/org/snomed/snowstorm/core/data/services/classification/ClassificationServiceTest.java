@@ -88,19 +88,19 @@ class ClassificationServiceTest extends AbstractTest {
 		Classification classification = createClassification(branch, classificationId);
 
 		// Standard relationships
-		classificationService.saveRelationshipChanges(classification, new ByteArrayInputStream(("" +
-				"id\teffectiveTime\tactive\tmoduleId\tsourceId\tdestinationId\trelationshipGroup\ttypeId\tcharacteristicTypeId\tmodifierId\n" +
-				"\t\t1\t\t123123123001\t138875005\t0\t116680003\t900000000000227009\t900000000000451002\n" +
-				"\t\t1\t\t123123123001\t84301002\t0\t363698007\t900000000000227009\t900000000000451002\n" +
-				"\t\t1\t\t123123123001\t50960005\t0\t116676008\t900000000000227009\t900000000000451002\n" +
-				"\t\t1\t\t123123123001\t247247001\t0\t116680003\t900000000000227009\t900000000000451002\n" +
-				"").getBytes()), false);
+		classificationService.saveRelationshipChanges(classification, new ByteArrayInputStream(("""
+                id\teffectiveTime\tactive\tmoduleId\tsourceId\tdestinationId\trelationshipGroup\ttypeId\tcharacteristicTypeId\tmodifierId
+                \t\t1\t\t123123123001\t138875005\t0\t116680003\t900000000000227009\t900000000000451002
+                \t\t1\t\t123123123001\t84301002\t0\t363698007\t900000000000227009\t900000000000451002
+                \t\t1\t\t123123123001\t50960005\t0\t116676008\t900000000000227009\t900000000000451002
+                \t\t1\t\t123123123001\t247247001\t0\t116680003\t900000000000227009\t900000000000451002
+                """).getBytes()), false);
 		// Concrete relationships
-		classificationService.saveRelationshipChanges(classification, new ByteArrayInputStream(("" +
-				"id\teffectiveTime\tactive\tmoduleId\tsourceId\tvalue\trelationshipGroup\ttypeId\tcharacteristicTypeId\tmodifierId\n" +
-				"\t\t1\t\t123123123001\t#5\t0\t1142139005\t900000000000227009\t900000000000451002\n" +
-				"\t\t1\t\t123123123001\t#55.5\t0\t1142135004\t900000000000227009\t900000000000451002\n" +
-				"").getBytes()), true);
+		classificationService.saveRelationshipChanges(classification, new ByteArrayInputStream(("""
+                id\teffectiveTime\tactive\tmoduleId\tsourceId\tvalue\trelationshipGroup\ttypeId\tcharacteristicTypeId\tmodifierId
+                \t\t1\t\t123123123001\t#5\t0\t1142139005\t900000000000227009\t900000000000451002
+                \t\t1\t\t123123123001\t#55.5\t0\t1142135004\t900000000000227009\t900000000000451002
+                """).getBytes()), true);
 
 		// Collect changes persisted to change repo (ready for author change review)
 		List<RelationshipChange> relationshipChanges = relationshipChangeRepository.findByClassificationId(classificationId, LARGE_PAGE).getContent();
@@ -110,12 +110,14 @@ class ClassificationServiceTest extends AbstractTest {
 						.append(change.getDestinationOrValue()).append(" inferredNotStated:").append(change.isInferredNotStated()).append("\n"));
 
 		// Assert that the changes which were not previously stated are marked as inferredNotStated:true
-		assertEquals("123123123001 -> 1142135004 -> #55.5 inferredNotStated:false\n" +
-				"123123123001 -> 1142139005 -> #5 inferredNotStated:true\n" +
-				"123123123001 -> 116676008 -> 50960005 inferredNotStated:true\n" +
-				"123123123001 -> 116680003 -> 138875005 inferredNotStated:false\n" +
-				"123123123001 -> 116680003 -> 247247001 inferredNotStated:true\n" +
-				"123123123001 -> 363698007 -> 84301002 inferredNotStated:false\n", allChanges.toString());
+		assertEquals("""
+                123123123001 -> 1142135004 -> #55.5 inferredNotStated:false
+                123123123001 -> 1142139005 -> #5 inferredNotStated:true
+                123123123001 -> 116676008 -> 50960005 inferredNotStated:true
+                123123123001 -> 116680003 -> 138875005 inferredNotStated:false
+                123123123001 -> 116680003 -> 247247001 inferredNotStated:true
+                123123123001 -> 363698007 -> 84301002 inferredNotStated:false
+                """, allChanges.toString());
 
 		// Save the classification results to branch
 		assertEquals(SAVED, saveClassificationAndWaitForCompletion(branch, classification.getId()));
@@ -173,14 +175,12 @@ class ClassificationServiceTest extends AbstractTest {
 		Classification classification = createClassification(branch, classificationId);
 
 		// Standard relationships
-		classificationService.saveRelationshipChanges(classification, new ByteArrayInputStream(("" +
-				"id\teffectiveTime\tactive\tmoduleId\tsourceId\tdestinationId\trelationshipGroup\ttypeId\tcharacteristicTypeId\tmodifierId\n" +
-				"\t\t1\t\t10000000001\t20000000001\t0\t116680003\t900000000000227009\t900000000000451002\n" +
-				"").getBytes()), false);
+		classificationService.saveRelationshipChanges(classification, new ByteArrayInputStream(("""
+                id\teffectiveTime\tactive\tmoduleId\tsourceId\tdestinationId\trelationshipGroup\ttypeId\tcharacteristicTypeId\tmodifierId
+                \t\t1\t\t10000000001\t20000000001\t0\t116680003\t900000000000227009\t900000000000451002
+                """).getBytes()), false);
 		// Concrete relationships
-		classificationService.saveRelationshipChanges(classification, new ByteArrayInputStream(("" +
-				"id\teffectiveTime\tactive\tmoduleId\tsourceId\tvalue\trelationshipGroup\ttypeId\tcharacteristicTypeId\tmodifierId\n" +
-				"").getBytes()), true);
+		classificationService.saveRelationshipChanges(classification, new ByteArrayInputStream(("id\teffectiveTime\tactive\tmoduleId\tsourceId\tvalue\trelationshipGroup\ttypeId\tcharacteristicTypeId\tmodifierId\n").getBytes()), true);
 
 		// Collect changes persisted to change repo (ready for author change review)
 		List<RelationshipChange> relationshipChanges = relationshipChangeRepository.findByClassificationId(classificationId, LARGE_PAGE).getContent();
@@ -216,13 +216,13 @@ class ClassificationServiceTest extends AbstractTest {
 
 		// Save mock classification results
 		Classification classification = createClassification(extensionBranchPath, UUID.randomUUID().toString());
-		classificationService.saveRelationshipChanges(classification, new ByteArrayInputStream(("" +
-				"id\teffectiveTime\tactive\tmoduleId\tsourceId\tdestinationId\trelationshipGroup\ttypeId\tcharacteristicTypeId\tmodifierId\n" +
-				"\t\t1\t\t123123123001\t138875005\t0\t116680003\t900000000000227009\t900000000000451002\n" +
-				"\t\t1\t\t123123123001\t84301002\t0\t363698007\t900000000000227009\t900000000000451002\n" +
-				"\t\t1\t\t123123123001\t50960005\t0\t116676008\t900000000000227009\t900000000000451002\n" +
-				"\t\t1\t\t123123123001\t247247001\t0\t116680003\t900000000000227009\t900000000000451002\n" +
-				"").getBytes()), false);
+		classificationService.saveRelationshipChanges(classification, new ByteArrayInputStream(("""
+                id\teffectiveTime\tactive\tmoduleId\tsourceId\tdestinationId\trelationshipGroup\ttypeId\tcharacteristicTypeId\tmodifierId
+                \t\t1\t\t123123123001\t138875005\t0\t116680003\t900000000000227009\t900000000000451002
+                \t\t1\t\t123123123001\t84301002\t0\t363698007\t900000000000227009\t900000000000451002
+                \t\t1\t\t123123123001\t50960005\t0\t116676008\t900000000000227009\t900000000000451002
+                \t\t1\t\t123123123001\t247247001\t0\t116680003\t900000000000227009\t900000000000451002
+                """).getBytes()), false);
 
 		assertEquals(SAVED, saveClassificationAndWaitForCompletion(extensionBranchPath, classification.getId()));
 		final Branch latest = branchService.findLatest(extensionBranchPath);
@@ -276,10 +276,10 @@ class ClassificationServiceTest extends AbstractTest {
 		
 		// Save mock classification results - an extension inactivation of an international relationship
 		Classification classification = createClassification(extensionBranchPath, UUID.randomUUID().toString());
-		classificationService.saveRelationshipChanges(classification, new ByteArrayInputStream(("" +
-				"id\teffectiveTime\tactive\tmoduleId\tsourceId\tdestinationId\trelationshipGroup\ttypeId\tcharacteristicTypeId\tmodifierId\n" +
-				"123456020\t\t0\t\t123123123001\t138875005\t0\t116680003\t900000000000227009\t900000000000451002\n" +
-				"").getBytes()), false);
+		classificationService.saveRelationshipChanges(classification, new ByteArrayInputStream(("""
+                id\teffectiveTime\tactive\tmoduleId\tsourceId\tdestinationId\trelationshipGroup\ttypeId\tcharacteristicTypeId\tmodifierId
+                123456020\t\t0\t\t123123123001\t138875005\t0\t116680003\t900000000000227009\t900000000000451002
+                """).getBytes()), false);
 
 		assertEquals(SAVED, saveClassificationAndWaitForCompletion(extensionBranchPath, classification.getId()));
 	
@@ -305,13 +305,13 @@ class ClassificationServiceTest extends AbstractTest {
 
 		// Save mock classification results
 		Classification classification = createClassification(extensionBranchPath, UUID.randomUUID().toString());
-		classificationService.saveRelationshipChanges(classification, new ByteArrayInputStream(("" +
-				"id\teffectiveTime\tactive\tmoduleId\tsourceId\tdestinationId\trelationshipGroup\ttypeId\tcharacteristicTypeId\tmodifierId\n" +
-				"\t\t1\t\t123123123001\t138875005\t0\t116680003\t900000000000227009\t900000000000451002\n" +
-				"\t\t1\t\t123123123001\t84301002\t0\t363698007\t900000000000227009\t900000000000451002\n" +
-				"\t\t1\t\t123123123001\t50960005\t0\t116676008\t900000000000227009\t900000000000451002\n" +
-				"\t\t1\t\t123123123001\t247247001\t0\t116680003\t900000000000227009\t900000000000451002\n" +
-				"").getBytes()), false);
+		classificationService.saveRelationshipChanges(classification, new ByteArrayInputStream(("""
+                id\teffectiveTime\tactive\tmoduleId\tsourceId\tdestinationId\trelationshipGroup\ttypeId\tcharacteristicTypeId\tmodifierId
+                \t\t1\t\t123123123001\t138875005\t0\t116680003\t900000000000227009\t900000000000451002
+                \t\t1\t\t123123123001\t84301002\t0\t363698007\t900000000000227009\t900000000000451002
+                \t\t1\t\t123123123001\t50960005\t0\t116676008\t900000000000227009\t900000000000451002
+                \t\t1\t\t123123123001\t247247001\t0\t116680003\t900000000000227009\t900000000000451002
+                """).getBytes()), false);
 
 		assertEquals(SAVED, saveClassificationAndWaitForCompletion(extensionBranchPath, classification.getId()));
 		final Branch latest = branchService.findLatest(extensionBranchPath);
@@ -489,11 +489,11 @@ class ClassificationServiceTest extends AbstractTest {
 		Classification classification = createClassification(branch, classificationId);
 
 		// Concrete relationships
-		classificationService.saveRelationshipChanges(classification, new ByteArrayInputStream(("" +
-				"id\teffectiveTime\tactive\tmoduleId\tsourceId\tvalue\trelationshipGroup\ttypeId\tcharacteristicTypeId\tmodifierId\n" +
-				"\t\t1\t\t123123123001\t#10\t0\t1142139005\t900000000000227009\t900000000000451002\n" +
-				"\t\t1\t\t123123123001\t#500.0\t0\t1142135004\t900000000000227009\t900000000000451002\n" +
-				"").getBytes()), true);
+		classificationService.saveRelationshipChanges(classification, new ByteArrayInputStream(("""
+                id\teffectiveTime\tactive\tmoduleId\tsourceId\tvalue\trelationshipGroup\ttypeId\tcharacteristicTypeId\tmodifierId
+                \t\t1\t\t123123123001\t#10\t0\t1142139005\t900000000000227009\t900000000000451002
+                \t\t1\t\t123123123001\t#500.0\t0\t1142135004\t900000000000227009\t900000000000451002
+                """).getBytes()), true);
 		// Save the classification results to branch
 		assertEquals(SAVED, saveClassificationAndWaitForCompletion(branch, classification.getId()));
 
@@ -586,6 +586,148 @@ class ClassificationServiceTest extends AbstractTest {
 		members = getMembersByRefsetAndReferencedComponentIds("MAIN", DESCRIPTION_INACTIVATION_INDICATOR_REFERENCE_SET, descFsnId, descSynId);
 		assertFalse(members.isEmpty());
 		assertEquals(CONCEPT_NON_CURRENT, members.iterator().next().getAdditionalField(ReferenceSetMember.AssociationFields.VALUE_ID));
+	}
+
+	@Test
+	void testClassificationFailsWhenRelationshipsNotFound() throws IOException, ServiceException, InterruptedException {
+		String classificationId;
+		Classification classification;
+
+		// Create CodeSystem
+		CodeSystem codeSystem = codeSystemService.createCodeSystem(new CodeSystem("SNOMEDCT", "MAIN"));
+
+		// Create root Concept
+		conceptService.create(new Concept(Concepts.SNOMEDCT_ROOT), Branch.MAIN);
+
+		// Create project
+		String project = "MAIN/projectA";
+		branchService.create(project);
+
+		// Create task A
+		String taskA = "MAIN/projectA/taskA";
+		branchService.create(taskA);
+
+		// Create Concepts on task A
+		Concept concept = new Concept()
+				.addDescription(new Description("Car (car)").setTypeId(FSN).setCaseSignificance("CASE_INSENSITIVE").setAcceptabilityMap(Map.of(US_EN_LANG_REFSET, descriptionAcceptabilityNames.get(PREFERRED), GB_EN_LANG_REFSET, descriptionAcceptabilityNames.get(PREFERRED))))
+				.addDescription(new Description("Car").setTypeId(SYNONYM).setCaseSignificance("CASE_INSENSITIVE").setAcceptabilityMap(Map.of(US_EN_LANG_REFSET, descriptionAcceptabilityNames.get(PREFERRED), GB_EN_LANG_REFSET, descriptionAcceptabilityNames.get(PREFERRED))))
+				.addAxiom(new Relationship(ISA, SNOMEDCT_ROOT))
+				.setModuleId(CORE_MODULE);
+		concept = conceptService.create(concept, taskA);
+		String carId = concept.getConceptId();
+
+		concept = new Concept()
+				.addDescription(new Description("Boat (boat)").setTypeId(FSN).setCaseSignificance("CASE_INSENSITIVE").setAcceptabilityMap(Map.of(US_EN_LANG_REFSET, descriptionAcceptabilityNames.get(PREFERRED), GB_EN_LANG_REFSET, descriptionAcceptabilityNames.get(PREFERRED))))
+				.addDescription(new Description("Boat").setTypeId(SYNONYM).setCaseSignificance("CASE_INSENSITIVE").setAcceptabilityMap(Map.of(US_EN_LANG_REFSET, descriptionAcceptabilityNames.get(PREFERRED), GB_EN_LANG_REFSET, descriptionAcceptabilityNames.get(PREFERRED))))
+				.addAxiom(new Relationship(ISA, SNOMEDCT_ROOT))
+				.setModuleId(CORE_MODULE);
+		concept = conceptService.create(concept, taskA);
+		String boatId = concept.getConceptId();
+
+		// Classify task A
+		classificationId = UUID.randomUUID().toString();
+		classification = createClassification(taskA, classificationId);
+		classificationService.saveRelationshipChanges(
+				classification,
+				new ByteArrayInputStream((
+						rf2RelationshipHeader() +
+								rf2RelationshipRow(null, null, "1", CORE_MODULE, carId, SNOMEDCT_ROOT, "1", ISA, INFERRED_RELATIONSHIP, EXISTENTIAL) +
+								"\n" +
+								rf2RelationshipRow(null, null, "1", CORE_MODULE, boatId, SNOMEDCT_ROOT, "1", ISA, INFERRED_RELATIONSHIP, EXISTENTIAL)
+				).getBytes()),
+				false);
+		saveClassificationAndWaitForCompletion(taskA, classification.getId());
+
+		// Promote task A to project
+		branchMergeService.mergeBranchSync(taskA, project, Collections.emptySet());
+
+		// Create task B
+		String taskB = "MAIN/projectA/taskB";
+		branchService.create(taskB);
+
+		// Create problem Concept on task B
+		concept = new Concept()
+				.addDescription(new Description("Amphibious (vehicle)").setTypeId(FSN).setCaseSignificance("CASE_INSENSITIVE").setAcceptabilityMap(Map.of(US_EN_LANG_REFSET, descriptionAcceptabilityNames.get(PREFERRED), GB_EN_LANG_REFSET, descriptionAcceptabilityNames.get(PREFERRED))))
+				.addDescription(new Description("Amphibious").setTypeId(SYNONYM).setCaseSignificance("CASE_INSENSITIVE").setAcceptabilityMap(Map.of(US_EN_LANG_REFSET, descriptionAcceptabilityNames.get(PREFERRED), GB_EN_LANG_REFSET, descriptionAcceptabilityNames.get(PREFERRED))))
+				.addAxiom(new Relationship(ISA, carId))
+				.setModuleId(CORE_MODULE);
+		concept = conceptService.create(concept, taskB);
+		String amphibiousId = concept.getConceptId();
+
+		// Classify task B
+		classificationId = UUID.randomUUID().toString();
+		classification = createClassification(taskB, classificationId);
+		classificationService.saveRelationshipChanges(
+				classification,
+				new ByteArrayInputStream((
+						rf2RelationshipHeader() +
+								rf2RelationshipRow(null, null, "1", CORE_MODULE, amphibiousId, carId, "1", ISA, INFERRED_RELATIONSHIP, EXISTENTIAL)
+				).getBytes()),
+				false);
+		saveClassificationAndWaitForCompletion(taskB, classification.getId());
+		concept = conceptService.find(amphibiousId, taskB);
+		String isACarId = concept.getRelationships().iterator().next().getRelationshipId();
+
+		// Promote task B to project
+		branchMergeService.mergeBranchSync(taskB, project, Collections.emptySet());
+
+		// Create task C (for adding additional attribute)
+		String taskC = "MAIN/projectA/taskC";
+		branchService.create(taskC);
+
+		// Create task D (for deleting concept)
+		String taskD = "MAIN/projectA/taskD";
+		branchService.create(taskD);
+
+		// Add additional attribute on task C
+		concept = conceptService.find(amphibiousId, taskC);
+		concept.getClassAxioms().iterator().next().getRelationships().add(new Relationship(ISA, boatId));
+
+		// Classify task C
+		classificationId = UUID.randomUUID().toString();
+		classification = createClassification(taskC, classificationId);
+		classificationService.saveRelationshipChanges(
+				classification,
+				new ByteArrayInputStream((
+						rf2RelationshipHeader() +
+								rf2RelationshipRow(null, null, "1", CORE_MODULE, amphibiousId, boatId, "1", ISA, INFERRED_RELATIONSHIP, EXISTENTIAL)
+				).getBytes()),
+				false);
+		saveClassificationAndWaitForCompletion(taskC, classification.getId());
+
+		concept = conceptService.find(amphibiousId, taskC);
+		String isABoatId = concept.getRelationships().iterator().next().getRelationshipId();
+
+		// Delete concept on task D
+		conceptService.deleteConceptAndComponents(amphibiousId, taskD, false);
+
+		// Promote task C to project
+		branchMergeService.mergeBranchSync(taskC, project, Collections.emptySet());
+
+		// Promote project to code system
+		branchMergeService.mergeBranchSync(project, Branch.MAIN, Collections.emptySet());
+
+		// Version code system
+		codeSystemService.createVersion(codeSystem, 20230131, "20230131");
+
+		// Classify task D (without rebasing)
+		classificationId = UUID.randomUUID().toString();
+		classification = createClassification(taskD, classificationId);
+		classificationService.saveRelationshipChanges(
+				classification,
+				new ByteArrayInputStream((
+						rf2RelationshipHeader() +
+								// These changes have come from the published RF2 package
+								rf2RelationshipRow(isACarId, null, "0", CORE_MODULE, amphibiousId, carId, "1", ISA, INFERRED_RELATIONSHIP, EXISTENTIAL) +
+								"\n" +
+								rf2RelationshipRow(isABoatId, null, "0", CORE_MODULE, amphibiousId, boatId, "1", ISA, INFERRED_RELATIONSHIP, EXISTENTIAL)
+				).getBytes()),
+				false);
+		saveClassificationAndWaitForCompletion(taskD, classification.getId());
+
+		// Assert classification status
+		classification = classificationService.findClassification(taskD, classificationId);
+		assertEquals(SAVE_FAILED, classification.getStatus());
 	}
 
 	Classification createClassification(String path, String classificationId) {

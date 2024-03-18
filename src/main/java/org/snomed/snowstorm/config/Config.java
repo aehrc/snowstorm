@@ -2,31 +2,18 @@ package org.snomed.snowstorm.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
 import io.kaicode.elasticvc.api.BranchService;
-import io.kaicode.elasticvc.api.ComponentService;
 import io.kaicode.elasticvc.api.VersionControlHelper;
-import org.elasticsearch.action.admin.indices.settings.put.UpdateSettingsRequest;
-import org.elasticsearch.client.RequestOptions;
-import org.elasticsearch.common.settings.Settings;
+import org.elasticsearch.client.Request;
+import org.modelmapper.ModelMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.snomed.langauges.ecl.ECLQueryBuilder;
-import org.snomed.snowstorm.core.data.domain.CodeSystem;
-import org.snomed.snowstorm.core.data.domain.CodeSystemVersion;
 import org.snomed.snowstorm.core.data.domain.Concepts;
 import org.snomed.snowstorm.core.data.domain.SnomedComponent;
-import org.snomed.snowstorm.core.data.domain.classification.Classification;
-import org.snomed.snowstorm.core.data.domain.classification.EquivalentConcepts;
-import org.snomed.snowstorm.core.data.domain.classification.RelationshipChange;
-import org.snomed.snowstorm.core.data.domain.jobs.ExportConfiguration;
-import org.snomed.snowstorm.core.data.domain.jobs.IdentifiersForRegistration;
 import org.snomed.snowstorm.core.data.services.*;
 import org.snomed.snowstorm.core.data.services.classification.BranchClassificationStatusService;
-import org.snomed.snowstorm.core.data.services.identifier.IdentifierCacheManager;
-import org.snomed.snowstorm.core.data.services.identifier.IdentifierSource;
-import org.snomed.snowstorm.core.data.services.identifier.LocalRandomIdentifierSource;
-import org.snomed.snowstorm.core.data.services.identifier.SnowstormCISClient;
+import org.snomed.snowstorm.core.data.services.identifier.*;
 import org.snomed.snowstorm.core.data.services.pojo.DescriptionCriteria;
 import org.snomed.snowstorm.core.data.services.servicehook.CommitServiceHookClient;
 import org.snomed.snowstorm.core.data.services.traceability.TraceabilityLogService;
@@ -45,29 +32,22 @@ import org.springframework.boot.autoconfigure.elasticsearch.ElasticsearchRestCli
 import org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration;
 import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration;
 import org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration;
-import org.springframework.boot.autoconfigure.web.servlet.WebMvcAutoConfiguration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
-import org.springframework.cloud.aws.autoconfigure.context.ContextStackAutoConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.PropertySource;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.data.elasticsearch.core.ElasticsearchRestTemplate;
+import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
 import org.springframework.data.elasticsearch.core.IndexOperations;
-import org.springframework.data.elasticsearch.core.document.Document;
-import org.springframework.data.elasticsearch.core.mapping.IndexCoordinates;
 import org.springframework.data.elasticsearch.repository.config.EnableElasticsearchRepositories;
 import org.springframework.jms.support.converter.MappingJackson2MessageConverter;
 import org.springframework.jms.support.converter.MessageConverter;
 import org.springframework.jms.support.converter.MessageType;
 import org.springframework.scheduling.annotation.EnableAsync;
 
-import javax.annotation.PostConstruct;
+import jakarta.annotation.PostConstruct;
 import java.io.IOException;
-import java.util.Collections;
-import java.util.Date;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -77,7 +57,6 @@ import static java.lang.Long.parseLong;
 		exclude = {
 				ElasticsearchDataAutoConfiguration.class,
 				ElasticsearchRestClientAutoConfiguration.class,
-				ContextStackAutoConfiguration.class,
 				FlywayAutoConfiguration.class,
 				HibernateJpaAutoConfiguration.class,
 				DataSourceHealthContributorAutoConfiguration.class,
@@ -114,6 +93,7 @@ public abstract class Config extends ElasticsearchConfig {
 	// Branch metadata values
 	public static final String DEFAULT_MODULE_ID_KEY = "defaultModuleId";
 	public static final String DEFAULT_NAMESPACE_KEY = "defaultNamespace";
+	public static final String EXPECTED_EXTENSION_MODULES = "expectedExtensionModules";
 
 	@Value("${elasticsearch.index.max.terms.count}")
 	private int indexMaxTermsCount;
@@ -146,7 +126,7 @@ public abstract class Config extends ElasticsearchConfig {
 	private TraceabilityLogService traceabilityLogService;
 
 	@Autowired
-	private ElasticsearchRestTemplate elasticsearchTemplate;
+	private ElasticsearchOperations elasticsearchOperations;
 
 	@Autowired
 	private IntegrityService integrityService;
@@ -177,11 +157,11 @@ public abstract class Config extends ElasticsearchConfig {
 		branchService.addCommitListener(mrcmUpdateService);
 		branchService.addCommitListener(branchClassificationStatusService);
 		branchService.addCommitListener(refsetDescriptorUpdaterService);
-		branchService.addCommitListener(traceabilityLogService);
 		branchService.addCommitListener(integrityService);
 		branchService.addCommitListener(multiSearchService);
 		branchService.addCommitListener(eclPreprocessingService);
 		branchService.addCommitListener(commitServiceHookClient);
+		branchService.addCommitListener(traceabilityLogService);
 		branchService.addCommitListener(BranchMetadataHelper::clearTransientMetadata);
 		branchService.addCommitListener(commit ->
 			logger.info("Completed commit on {} in {} seconds.", commit.getBranch().getPath(), secondsDuration(commit.getTimepoint())));
@@ -215,10 +195,13 @@ public abstract class Config extends ElasticsearchConfig {
 			@Value("${cis.username}") String username,
 			@Value("${cis.password}") String password,
 			@Value("${cis.softwareName}") String softwareName,
-			@Value("${cis.timeout}") int timeoutSeconds) {
+			@Value("${cis.timeout}") int timeoutSeconds,
+			@Autowired ElasticsearchOperations elasticsearchOperations) {
 
 		if (cisApiUrl.equals("local-random") || cisApiUrl.equals("local")) {// local is the legacy name
-			return new LocalRandomIdentifierSource(elasticsearchRestTemplate());
+			return new LocalRandomIdentifierSource(elasticsearchOperations);
+		} else if (cisApiUrl.equals("local-sequential")) {
+			return new LocalSequentialIdentifierSource(elasticsearchOperations);
 		} else {
 			return new SnowstormCISClient(cisApiUrl, username, password, softwareName, timeoutSeconds);
 		}
@@ -290,6 +273,10 @@ public abstract class Config extends ElasticsearchConfig {
 		converter.setTypeIdPropertyName("_type");
 		return converter;
 	}
+	@Bean
+	public ModelMapper modelMapper() {
+		return new ModelMapper();
+	}
 
 	protected void updateIndexMaxTermsSettingForAllSnomedComponents() {
 		for (Class<? extends SnomedComponent> componentClass : domainEntityConfiguration.getComponentTypeRepositoryMap().keySet()) {
@@ -297,16 +284,17 @@ public abstract class Config extends ElasticsearchConfig {
 		}
 	}
 
-	protected void updateIndexMaxTermsSetting(Class domainEntityClass) {
-		IndexOperations indexOperations = elasticsearchTemplate.indexOps(elasticsearchTemplate.getIndexCoordinatesFor(domainEntityClass));
-		String existing = (String) indexOperations.getSettings().get(INDEX_MAX_TERMS_COUNT);
-		if (existing == null || indexMaxTermsCount != Integer.parseInt(existing)) {
-			Settings settings = Settings.builder().put(INDEX_MAX_TERMS_COUNT, indexMaxTermsCount).build();
-			String indexName = elasticsearchTemplate.getIndexCoordinatesFor(domainEntityClass).getIndexName();
-			UpdateSettingsRequest updateSettingsRequest = new UpdateSettingsRequest(settings, indexName);
+	protected void updateIndexMaxTermsSetting(Class<?> domainEntityClass) {
+		IndexOperations indexOperations = elasticsearchOperations.indexOps(elasticsearchOperations.getIndexCoordinatesFor(domainEntityClass));
+		Integer existing = (Integer) indexOperations.getSettings().get(INDEX_MAX_TERMS_COUNT);
+		if (existing == null || indexMaxTermsCount != existing) {
+			// Update setting
+			String indexName = elasticsearchOperations.getIndexCoordinatesFor(domainEntityClass).getIndexName();
 			try {
 				indexMaxTermsCount = indexMaxTermsCount <= 65536 ? 65536 : indexMaxTermsCount;
-				elasticsearchRestClient().rest().indices().putSettings(updateSettingsRequest, RequestOptions.DEFAULT);
+				Request updateSettingsRequest = new Request("PUT", "/" + indexName + "/_settings");
+				updateSettingsRequest.setJsonEntity("{\"index.max_terms_count\": " + indexMaxTermsCount + "}");
+				elasticsearchRestClient(clientConfiguration()).performRequest(updateSettingsRequest);
 				logger.info("{} is updated to {} for {}", INDEX_MAX_TERMS_COUNT, indexMaxTermsCount, indexName);
 			} catch (IOException e) {
 				logger.error("Failed to update setting {} on index {}", INDEX_MAX_TERMS_COUNT, indexName, e);
@@ -314,33 +302,5 @@ public abstract class Config extends ElasticsearchConfig {
 		}
 	}
 
-	protected void initialiseIndices(boolean deleteExisting) {
-		// Initialise Elasticsearch indices
-		Class<?>[] allDomainEntityTypes = domainEntityConfiguration.getAllDomainEntityTypes().toArray(new Class<?>[]{});
-		ComponentService.initialiseIndexAndMappingForPersistentClasses(
-				deleteExisting, elasticsearchTemplate,
-				allDomainEntityTypes
-		);
-		if (deleteExisting) {
-			Set<Class> objectsNotVersionControlled = Sets.newHashSet(
-					CodeSystem.class,
-					CodeSystemVersion.class,
-					Classification.class,
-					RelationshipChange.class,
-					EquivalentConcepts.class,
-					IdentifiersForRegistration.class,
-					ExportConfiguration.class
-			);
-			for (Class aClass : objectsNotVersionControlled) {
-				IndexCoordinates indexCoordinates = elasticsearchTemplate.getIndexCoordinatesFor(aClass);
-				logger.info("Deleting index {}", indexCoordinates.getIndexName());
-				elasticsearchTemplate.indexOps(indexCoordinates).delete();
-				logger.info("Creating index {}", indexCoordinates.getIndexName());
-				elasticsearchTemplate.indexOps(indexCoordinates).create();
-				IndexOperations indexOperations = elasticsearchTemplate.indexOps(indexCoordinates);
-				Document document = indexOperations.createMapping(aClass);
-				indexOperations.putMapping(document);
-			}
-		}
-	}
+
 }

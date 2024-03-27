@@ -253,8 +253,8 @@ public class QueryConcept extends DomainEntity<QueryConcept> implements FHIRGrap
 				|| !this.getRefsets().equals(other.getRefsets())) {
 			return false;
 		}
-		Map<Integer, Map<String, List<Object>>> groupedAttributesMap = orEmpty(this.getGroupedAttributesMap());
-		Map<Integer, Map<String, List<Object>>> otherGroupedAttributesMap = orEmpty(other.getGroupedAttributesMap());
+		final Map<Integer, Map<String, List<Object>>> groupedAttributesMap = orEmpty(this.getGroupedAttributesMap());
+		final Map<Integer, Map<String, List<Object>>> otherGroupedAttributesMap = orEmpty(other.getGroupedAttributesMap());
 		// Sort both before comparing
 		groupedAttributesMap.values().forEach(value -> value.values().forEach(list -> list.sort(null)));
 		otherGroupedAttributesMap.values().forEach(value -> value.values().forEach(list -> list.sort(null)));
@@ -299,13 +299,13 @@ public class QueryConcept extends DomainEntity<QueryConcept> implements FHIRGrap
 		return Objects.hash(conceptIdL, stated);
 	}
 
-	private static class GroupedAttributesMapSerializer {
+	private static final class GroupedAttributesMapSerializer {
 
 		private static String serializeMap(Map<Integer, Map<String, List<Object>>> groupedAttributesMap) {
 			if (groupedAttributesMap == null) {
 				return "";
 			}
-			StringBuilder builder = new StringBuilder();
+			final StringBuilder builder = new StringBuilder();
 			for (Integer groupNo : groupedAttributesMap.keySet()) {
 				Map<String, List<Object>> attributes = groupedAttributesMap.get(groupNo);
 				builder.append(groupNo);

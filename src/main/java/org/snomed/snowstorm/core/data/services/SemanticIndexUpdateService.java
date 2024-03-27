@@ -209,7 +209,6 @@ public class SemanticIndexUpdateService extends ComponentService implements Comm
 				// Nothing to do
 				return 0;
 			}
-
 			// Strategy: Clear the modelling of updated concepts then add/remove edges and attributes based on the new commit
 			newGraph = graphBuilder.getNodeCount() == 0;
 			// Clear parents of updated concepts
@@ -433,12 +432,12 @@ public class SemanticIndexUpdateService extends ComponentService implements Comm
 
 	private Set<Long> getRefsetMembershipForConcept(BranchCriteria criteria, final Long conceptId) {
 		final Set<Long> referenceSets = new HashSet<>();
-		try (final SearchHitsIterator<ReferenceSetMember> refsetMemberships = elasticsearchTemplate.searchForStream(new NativeSearchQueryBuilder()
-			.withQuery(boolQuery()
+		try (final SearchHitsIterator<ReferenceSetMember> refsetMemberships = elasticsearchTemplate.searchForStream(new NativeQueryBuilder()
+			.withQuery(bool(b -> b
 				.must(criteria.getEntityBranchCriteria(ReferenceSetMember.class))
 				.must(termQuery(ReferenceSetMember.Fields.ACTIVE, true))
 				.filter(termQuery(ReferenceSetMember.Fields.REFERENCED_COMPONENT_ID, conceptId))
-				).build(), ReferenceSetMember.class)) {
+				)).build(), ReferenceSetMember.class)) {
 			while (refsetMemberships.hasNext()) {
 				final long refsetId = parseLong(refsetMemberships.next().getContent().getRefsetId());
 				referenceSets.add(refsetId);
@@ -590,14 +589,15 @@ public class SemanticIndexUpdateService extends ComponentService implements Comm
 		}
 
 		// Collect changed referenceset membership
-		try (SearchHitsIterator<ReferenceSetMember> changedRefsetMembership = elasticsearchTemplate.searchForStream(new NativeSearchQueryBuilder()
-				.withQuery(boolQuery().filter(
-						boolQuery()
+		try (SearchHitsIterator<ReferenceSetMember> changedRefsetMembership = elasticsearchTemplate.searchForStream(new NativeQueryBuilder()
+				.withQuery(bool(b -> b.filter(
+								bool(bq -> bq
 							// Either on this branch
 							.should(changesCriteria.getEntityBranchCriteria(ReferenceSetMember.class))
 							// Or on parent branch and deleted/replaced on this branch
 							.should(termsQuery("internalId", internalIdsOfDeletedComponents))
 						))
+					))
 				.build(), ReferenceSetMember.class)) {
 			changedRefsetMembership.forEachRemaining(hit -> {
 				final String componentId = hit.getContent().getReferencedComponentId();

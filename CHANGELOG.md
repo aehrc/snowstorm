@@ -3,6 +3,78 @@ All notable changes to this project will be documented in this file.
 
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 10.1.0 Release (January 2024)
+Maintenance release with bug fixes and improvements.
+
+### Breaking
+- Elasticsearch 8.11.1 onwards must be used with this release.
+
+### Fixes
+- MAINT-2418 Full import is no longer working due to reference set types update during start up
+- ISTO-112 Fix swagger doc parameter names
+- MAINT-2454 Snowstorm: FHIR config missing for Germany edition
+- MAINT-2424 Update en-gb language refset copy api to avoid duplication and deletion
+- VAL-273 Drools update: Duplicate FSNs
+
+### Improvements
+- MAINT-2456 Increase number of modules returned from CodeSystems endpoint
+- MAINT-2361 Snowstorm: Move semantic tag list into configuration
+- MAINT-2414 Snowstorm: Allow parsing of SubAnnotationPropertyOf
+- MAINT-2441 Add config to switch off sending JMS topic message when creating versions during RF2 import
+- MAINT-2457 Fix Snowstorm jenkins builds with intermittent test failures caused by index conflict during deleteAll
+- PIP-369 Document Elasticsearch 7 to Elasticsearch 8 migration options
+- PIP-458 Add abilities to configure shards externally after Elasticsearch 8 upgrade
+- PIP-468 Upgrade Spring Boot to 3.2 and ElasticSearch to 8.11.1
+- PIP-479 Upgrade activemq-broker to 6.0.1
+- VAL-361 Drools: Add exclusions list
+
+## 10.0.1 Release (December 2023)
+Major release with Spring Boot 3 & Elasticsearch 8 upgrade.
+
+### Breaking
+- Elasticsearch 8 must be used with this release. Existing cluster must be upgraded to Elasticsearch 8.7.1 onwards before upgrading Snowstorm to 10.0.1.
+
+### Improvements
+- PIP-307 Upgrade to Elasticsearch 8
+- PIP-374 Upgrade to Spring Boot 3
+
+### Fixes
+- MAINT-2384 Fix bug where an ECL query would fail if the modelling of a Concept had a concrete value with four or more decimal places.
+
+## 9.2.0 Release (November 2023)
+Maintenance release with Annotation improvements.
+
+### Improvements
+- MAINT-2370 Move the Annotation language code to a new column in RF2
+
+### Fixes
+- MAINT-2357 Remove any alternate identifiers that reference the concept while deleting a concept
+- MAINT-2366 Delete alternate identifier indices when running the application with the delete-indices flag
+
+## 9.0.0 Release (September 2023)
+Major release with Java 17 upgrade.
+
+### Breaking
+- Java 17 must be used with this release.
+
+### Features
+- MAINT-2282 Add `POST multisearch/descriptions` endpoint for searching Descriptions across multiple CodeSystems
+
+### Improvements
+- MAINT-1038 Raise merge conflict when one branch has a deleted Concept and the other has a new Synonym on the same Concept
+- MAINT-1930 Retrieve semantic tag based on language, with default being en
+- PIP-289 Upgrade from Java 11 to Java 17
+- MAINT-2199 Improve en-gb language refsets copying during IE and NZ extension upgrade to detect any existing preferred terms created in extension module
+
+### Fixes
+- ISTO-95 Block `FULL` RF2 imports unless request is on an empty `MAIN` branch
+- PIP-267 Stop classification status becoming stuck when encountering a `NotFoundException`
+- MAINT-2227 Fix bug preventing loading of all content in LOINC (2.72) package
+- MAINT-2296 Stop throwing exception when no Concepts found when querying `concept-or-identifier-ref-concept` endpoint
+- MAINT-2280 Do not record any Traceability Activities if an exception occurs
+- MAINT-2310 Suppress `EC2MetadataUtils` warning message
+- FRI-543 Stop duplicate Concept Not Current indicators from being generated when a CodeSystem upgrades its dependency
+
 ## 8.3.0 Release (August 2023)
 Maintenance release with bug fixes and improvements.
 

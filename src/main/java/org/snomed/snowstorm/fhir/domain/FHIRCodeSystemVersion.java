@@ -12,16 +12,13 @@ import org.snomed.snowstorm.core.data.domain.CodeSystemVersion;
 import org.snomed.snowstorm.fhir.services.FHIRCodeSystemService;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.annotation.Transient;
-import org.springframework.data.elasticsearch.annotations.DateFormat;
-import org.springframework.data.elasticsearch.annotations.Document;
-import org.springframework.data.elasticsearch.annotations.Field;
-import org.springframework.data.elasticsearch.annotations.FieldType;
+import org.springframework.data.elasticsearch.annotations.*;
 
 import java.util.Date;
 
 import static org.snomed.snowstorm.fhir.config.FHIRConstants.*;
 
-@Document(indexName = "fhir-codesystem-version")
+@Document(indexName = "#{@indexNameProvider.indexName('fhir-codesystem-version')}", createIndex = false)
 public class FHIRCodeSystemVersion {
 
 	@Id

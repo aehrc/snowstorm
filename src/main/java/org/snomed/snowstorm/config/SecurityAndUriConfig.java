@@ -15,6 +15,7 @@ import org.ihtsdo.drools.domain.Component;
 import org.ihtsdo.drools.response.InvalidContent;
 import org.ihtsdo.sso.integration.RequestHeaderAuthenticationDecorator;
 import org.snomed.snowstorm.core.data.domain.CodeSystemVersion;
+import org.snomed.snowstorm.core.data.domain.ReferenceSetType;
 import org.snomed.snowstorm.core.data.domain.classification.Classification;
 import org.snomed.snowstorm.rest.ReadOnlyApi;
 import org.snomed.snowstorm.rest.ReadOnlyApiWhenEnabled;
@@ -22,7 +23,7 @@ import org.snomed.snowstorm.rest.config.*;
 import org.snomed.snowstorm.rest.pojo.BranchPojo;
 import org.snomed.snowstorm.rest.security.AccessDeniedExceptionHandler;
 import org.snomed.snowstorm.rest.security.RequiredRoleFilter;
-import org.springdoc.core.GroupedOpenApi;
+import org.springdoc.core.models.GroupedOpenApi;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.info.BuildProperties;
@@ -35,15 +36,19 @@ import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configuration.WebSecurityCustomizer;
-import org.springframework.security.config.annotation.web.configurers.ExpressionUrlAuthorizationConfigurer;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.access.intercept.FilterSecurityInterceptor;
+import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.security.web.firewall.DefaultHttpFirewall;
 import org.springframework.security.web.firewall.HttpFirewall;
+import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
 import org.springframework.web.bind.annotation.GetMapping;
 
 import java.util.Collections;
 import java.util.List;
+
+import static org.springframework.security.config.Customizer.withDefaults;
+import static org.springframework.security.web.util.matcher.AntPathRequestMatcher.antMatcher;
 
 @Configuration
 @EnableWebSecurity
@@ -86,7 +91,8 @@ public class SecurityAndUriConfig {
 				.mixIn(Classification.class, ClassificationMixIn.class)
 				.mixIn(CodeSystemVersion.class, CodeSystemVersionMixIn.class)
 				.mixIn(InvalidContent.class, InvalidContentMixIn.class)
-				.mixIn(Component.class, ComponentMixIn.class);
+				.mixIn(Component.class, ComponentMixIn.class)
+				.mixIn(ReferenceSetType.class, ReferenceSetTypeMixin.class);
 
 		if (jsonIndentOutput) {
 			builder.featuresToEnable(SerializationFeature.INDENT_OUTPUT);
@@ -163,35 +169,43 @@ public class SecurityAndUriConfig {
 
 	@Bean
 	public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
-		http.csrf().disable();// lgtm [java/spring-disabled-csrf-protection]
+		http.csrf(AbstractHttpConfigurer::disable);// lgtm [java/spring-disabled-csrf-protection]
 
 		if (restApiReadOnly) {
 			// Read-ony mode
-
 			// Allow some explicitly defined endpoints
-			ExpressionUrlAuthorizationConfigurer<HttpSecurity>.ExpressionInterceptUrlRegistry authorizeRequests = http.authorizeRequests();
-			alwaysAllowReadOnlyPostEndpointPrefixes().forEach(prefix -> authorizeRequests.antMatchers(HttpMethod.POST, prefix + "/**").permitAll());
-			alwaysAllowReadOnlyPostEndpoints().forEach(path -> authorizeRequests.antMatchers(HttpMethod.POST, path).permitAll());
+			for (String prefix : alwaysAllowReadOnlyPostEndpointPrefixes()) {
+				http.authorizeHttpRequests(auth -> auth.requestMatchers(antMatcher(HttpMethod.POST, prefix + "/**")).permitAll());
+			}
+
+			for (String path : alwaysAllowReadOnlyPostEndpoints()) {
+				http.authorizeHttpRequests(auth -> auth.requestMatchers(antMatcher(HttpMethod.POST, path)).permitAll());
+			}
+
 			if (restApiAllowReadOnlyPostEndpoints) {
-				whenEnabledAllowReadOnlyPostEndpoints().forEach(endpoint -> authorizeRequests.antMatchers(HttpMethod.POST, endpoint.replace("{branch}", "**")).permitAll());
+				for (String endpoint : whenEnabledAllowReadOnlyPostEndpoints()) {
+					http.authorizeHttpRequests(auth -> auth.requestMatchers(antMatcher(HttpMethod.POST, endpoint.replace("{branch}", "**"))).permitAll());
+				}
 			}
 
 			// Block all other POST/PUT/PATCH/DELETE
-			authorizeRequests
-					.antMatchers(HttpMethod.POST, "/**").denyAll()
-					.antMatchers(HttpMethod.PUT, "/**").denyAll()
-					.antMatchers(HttpMethod.PATCH, "/**").denyAll()
-					.antMatchers(HttpMethod.DELETE, "/**").denyAll()
-					.anyRequest().permitAll();
+			http.authorizeHttpRequests(auth -> auth
+					.requestMatchers(antMatcher(HttpMethod.POST, "/**")).denyAll()
+					.requestMatchers(antMatcher(HttpMethod.PUT, "/**")).denyAll()
+					.requestMatchers(antMatcher(HttpMethod.PATCH, "/**")).denyAll()
+					.requestMatchers(antMatcher(HttpMethod.DELETE, "/**")).denyAll()
+					.anyRequest().permitAll());
 		} else if (rolesEnabled) {
-			http.addFilterBefore(new RequestHeaderAuthenticationDecorator(), FilterSecurityInterceptor.class);
-			http.addFilterAt(new RequiredRoleFilter(requiredRole, excludedUrlPatterns), FilterSecurityInterceptor.class);
+			http.addFilterBefore(new RequestHeaderAuthenticationDecorator(), AuthorizationFilter.class);
+			http.addFilterAt(new RequiredRoleFilter(requiredRole, excludedUrlPatterns), AuthorizationFilter.class);
 
-			http.authorizeRequests()
-					.antMatchers(excludedUrlPatterns).permitAll()
-					.anyRequest().authenticated()
-					.and().exceptionHandling().accessDeniedHandler(new AccessDeniedExceptionHandler())
-					.and().httpBasic();
+			for (String pattern : excludedUrlPatterns) {
+				http.authorizeHttpRequests(auth -> auth.requestMatchers(new AntPathRequestMatcher(pattern)).permitAll());
+			}
+			http.authorizeHttpRequests(auth -> auth
+					.anyRequest().authenticated())
+					.exceptionHandling(ah -> ah.accessDeniedHandler(new AccessDeniedExceptionHandler()))
+					.httpBasic(withDefaults());
 		}
 		return http.build();
 	}

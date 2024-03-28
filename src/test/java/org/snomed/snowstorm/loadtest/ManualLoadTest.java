@@ -31,12 +31,9 @@ import java.util.stream.Collectors;
 /**
  * Test script to support load testing.
  * This script was written quickly for occasional non-production use.
- *
  * Any number of users can be simulated concurrently. The number of times the users create a concept can be set.
  * NOTE: These are manic turbo-users who are faster than humanly possible!
- *
  * Each time this script is run a load-test branch will be created with all work performed in subbranches.
- *
  * Each user will run the create concept procedure which is:
  * - Create branch
  * - Randomly pick a hierarchy to work in
@@ -47,7 +44,6 @@ import java.util.stream.Collectors;
  * - Validate the concept
  * - Save the cloned concept
  * - Repeat all
- *
  * Update CONCURRENT_USERS to set the number of users simulated concurrently.
  * Update CONCEPTS_TO_CREATE_PER_USER to set the number times each user will run through the authoring procedure.
  * Update HIERARCHIES_TO_AUTHOR_IN to use more hierarchies.
@@ -67,13 +63,15 @@ class ManualLoadTest {
 	);
 
 	// Internal variables
-	private static final ParameterizedTypeReference<ItemsPagePojo<ConceptResult>> PAGE_OF_CONCEPTS_TYPE = new ParameterizedTypeReference<ItemsPagePojo<ConceptResult>>() {};
+	private static final ParameterizedTypeReference<ItemsPagePojo<ConceptResult>> PAGE_OF_CONCEPTS_TYPE = new ParameterizedTypeReference<>() {
+    };
 	private static final Logger LOGGER = LoggerFactory.getLogger(ManualLoadTest.class);
 
 	private RestTemplate restTemplate;
 	private String loadTestBranch;
 	private ObjectMapper objectMapper;
 	private Map<String, List<Float>> times = new LinkedHashMap<>();
+	private final Logger logger = LoggerFactory.getLogger(getClass());
 
 	public static void main(String[] args) throws InterruptedException {
 		new ManualLoadTest().run(CONCURRENT_USERS, CONCEPTS_TO_CREATE_PER_USER);
@@ -85,10 +83,10 @@ class ManualLoadTest {
 					request.getHeaders().setContentType(MediaType.APPLICATION_JSON);
 					request.getHeaders().add("Cookie", COOKIE);
 					ClientHttpResponse httpResponse = execution.execute(request, body);
-					if (!(httpResponse.getRawStatusCode() + "").startsWith("2")) {
+					if (!httpResponse.getStatusCode().is2xxSuccessful()) {
 						LOGGER.info("Request failed. Request '{}'", new String(body));
 						String responseBody = StreamUtils.copyToString(httpResponse.getBody(), Charset.defaultCharset());
-						LOGGER.info("Request failed. Response {} '{}'", httpResponse.getRawStatusCode(), responseBody);
+						LOGGER.info("Request failed. Response {} '{}'", httpResponse.getStatusCode().value(), responseBody);
 						return new ClientHttpResponseWithCachedBody(httpResponse, responseBody);
 					}
 					return httpResponse;
@@ -121,14 +119,13 @@ class ManualLoadTest {
 			try {
 				future.get();
 			} catch (InterruptedException | ExecutionException e) {
-				e.printStackTrace();
+				logger.error("Test failed.", e);
 			}
 		});
 
 		System.out.println();
 		System.out.println("Report ---");
-		System.out.println(String.format("%s concurrent users, %s runs each",
-				concurrentUsers, conceptsToClonePerUser));
+		System.out.printf("%s concurrent users, %s runs each%n", concurrentUsers, conceptsToClonePerUser);
 		for (String operation : times.keySet()) {
 			List<Float> operationTimes = times.get(operation);
 			if (!operationTimes.isEmpty()) {
@@ -141,7 +138,7 @@ class ManualLoadTest {
 					}
 				}
 				float seconds = Math.round((sum * 100) / (float) operationTimes.size()) / 100f;
-				System.out.println(String.format("%s average = %s seconds, max = %s (%s times)", operation, seconds, max, operationTimes.size()));
+				System.out.printf("%s average = %s seconds, max = %s (%s times)%n", operation, seconds, max, operationTimes.size());
 			}
 		}
 
@@ -271,7 +268,7 @@ class ManualLoadTest {
 			newConcept = restTemplate.postForObject("/browser/" + taskBranch + "/concepts", requestEntity, Concept.class);
 		} catch (HttpClientErrorException e) {
 			String responseBodyAsString = e.getResponseBodyAsString();
-			if (e.getRawStatusCode() == 400 && responseBodyAsString.contains("insufficient number of component ids available")) {
+			if (e.getStatusCode().value() == 400 && responseBodyAsString.contains("insufficient number of component ids available")) {
 				int seconds = 5;
 				LOGGER.info("SO6 is not reserving ids fast enough. Sleeping for {} seconds before trying once more.", seconds);
 				Thread.sleep(seconds * 1_000);
@@ -312,7 +309,7 @@ class ManualLoadTest {
 		long startMilis = new Date().getTime();
 		ResponseEntity<ItemsPagePojo<ConceptResult>> conceptListResponse = restTemplate.exchange("/" + loadTestBranch + "/concepts?active=true&ecl=" + ecl, HttpMethod.GET, null, PAGE_OF_CONCEPTS_TYPE);
 		if (!conceptListResponse.getStatusCode().is2xxSuccessful()) {
-			LOGGER.error("ECL request not successful {}", conceptListResponse.getStatusCodeValue());
+			LOGGER.error("ECL request not successful {}", conceptListResponse.getStatusCode().value());
 		}
 		ItemsPagePojo<ConceptResult> page = conceptListResponse.getBody();
 		List<ConceptResult> items = page.getItems();
@@ -330,7 +327,7 @@ class ManualLoadTest {
 		String url = "/browser/" + loadTestBranch + "/concepts/" + conceptId;
 		ResponseEntity<Concept> conceptResponse = restTemplate.exchange(url, HttpMethod.GET, null, Concept.class);
 		if (!conceptResponse.getStatusCode().is2xxSuccessful()) {
-			LOGGER.error("Concept fetch request not successful {} {}", url, conceptResponse.getStatusCodeValue());
+			LOGGER.error("Concept fetch request not successful {} {}", url, conceptResponse.getStatusCode().value());
 		}
 		Concept concept = conceptResponse.getBody();
 		LOGGER.info("Concept {} |{}| fetched in {} seconds.", conceptId, concept.getFsn(), recordDuration("load-concept", startMilis));

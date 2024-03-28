@@ -13,13 +13,15 @@ import org.snomed.snowstorm.core.data.services.DescriptionService;
 import org.snomed.snowstorm.validation.domain.DroolsDescription;
 import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
 import org.springframework.data.elasticsearch.core.SearchHit;
-import org.springframework.data.elasticsearch.core.query.NativeSearchQuery;
-import org.springframework.data.elasticsearch.core.query.NativeSearchQueryBuilder;
+import org.springframework.data.elasticsearch.client.elc.NativeQuery;
+import org.springframework.data.elasticsearch.client.elc.NativeQueryBuilder;
+import org.springframework.util.CollectionUtils;
 
 import java.util.*;
 import java.util.stream.Collectors;
 
-import static org.elasticsearch.index.query.QueryBuilders.*;
+import static co.elastic.clients.elasticsearch._types.query_dsl.QueryBuilders.*;
+import static io.kaicode.elasticvc.helper.QueryHelper.*;
 
 public class DescriptionDroolsValidationService implements org.ihtsdo.drools.service.DescriptionService {
 
@@ -69,14 +71,14 @@ public class DescriptionDroolsValidationService implements org.ihtsdo.drools.ser
 	}
 
 	private Set<org.ihtsdo.drools.domain.Description> findDescriptionByExactTerm(String exactTerm, boolean active) {
-		NativeSearchQuery query = new NativeSearchQueryBuilder()
-				.withQuery(boolQuery()
+		NativeQuery query = new NativeQueryBuilder()
+				.withQuery(bool(b -> b
 						.must(branchCriteria.getEntityBranchCriteria(Description.class))
 						.must(termQuery("active", active))
-						.must(termQuery("term", exactTerm))
+						.must(termQuery("term", exactTerm)))
 				)
 				.build();
-		List<Description> matches = elasticsearchTemplate.search(query, Description.class).get().map(SearchHit::getContent).collect(Collectors.toList());
+		List<Description> matches = elasticsearchTemplate.search(query, Description.class).get().map(SearchHit::getContent).toList();
 		return matches.stream()
 				.filter(description -> description.getTerm().equals(exactTerm))
 				.map(DroolsDescription::new).collect(Collectors.toSet());
@@ -142,8 +144,24 @@ public class DescriptionDroolsValidationService implements org.ihtsdo.drools.ser
 	}
 
 	@Override
-	public boolean isRecognisedSemanticTag(String semanticTag) {
-		return semanticTag != null && !semanticTag.isEmpty() && testResourceProvider.getSemanticTags().contains(semanticTag);
+	public boolean isRecognisedSemanticTag(String semanticTag, String language) {
+		return semanticTag != null && !semanticTag.isEmpty() && testResourceProvider.getSemanticTagsByLanguage(Collections.singleton(language)).contains(semanticTag);
+	}
+
+	@Override
+	public boolean isSemanticTagCompatibleWithinHierarchy(String term, Set <String> topLevelSemanticTags) {
+		String tag = DescriptionHelper.getTag(term);
+		Map <String, Set <String>> semanticTagMap = testResourceProvider.getSemanticHierarchyMap();
+		if (tag != null) {
+			for (String topLevelSemanticTag : topLevelSemanticTags) {
+				Set<String> compatibleSemanticTags = semanticTagMap.get(topLevelSemanticTag);
+				if (!CollectionUtils.isEmpty(compatibleSemanticTags) && compatibleSemanticTags.contains(tag)) {
+					return true;
+				}
+			}
+		}
+
+		return false;
 	}
 
 	private String findStatedHierarchyRootId(org.ihtsdo.drools.domain.Concept concept) {

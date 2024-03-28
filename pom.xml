@@ -6,17 +6,17 @@
 	<description>SNOMED CT Terminology Server Using Elasticsearch</description>
 
 	<artifactId>snowstorm</artifactId>
-	<version>8.3.0</version>
+	<version>10.1.0</version>
 	<parent>
 		<groupId>org.snomed</groupId>
 		<artifactId>snomed-parent-bom</artifactId>
-		<version>1.0.12</version>
+		<version>3.1.0</version>
 	</parent>
 
 	<properties>
 		<packageName>${project.artifactId}</packageName>
 		<!--
-		Current Elasticsearch _Server_ version supported by AWS is 7.10.0
+		Current Elasticsearch _Server_ version is 8.7.1
 		N.B. Remember to keep TestConfig.ELASTIC_SEARCH_SERVER_VERSION and getting-started guide updated.
 		-->
 
@@ -24,7 +24,7 @@
 		<docker.allowInsecureRegistries>false</docker.allowInsecureRegistries>
 		<docker.image.prefix>snomedinternational</docker.image.prefix>
 		<docker.image.tag>latest</docker.image.tag>
-		<docker.base-image>amazoncorretto:11</docker.base-image>
+		<docker.base-image>amazoncorretto:17</docker.base-image>
 	</properties>
 
 	<dependencies>
@@ -32,29 +32,18 @@
 			<!-- Branching and Version Control on top of Elasticsearch -->
 			<groupId>io.kaicode</groupId>
 			<artifactId>elasticvc</artifactId>
-			<exclusions>
-				<exclusion>
-					<groupId>org.elasticsearch</groupId>
-					<artifactId>jna</artifactId>
-				</exclusion>
-			</exclusions>
 		</dependency>
 		<dependency>
 			<groupId>net.java.dev.jna</groupId>
 			<artifactId>jna</artifactId>
 		</dependency>
+
 		<dependency>
-			<groupId>org.elasticsearch.client</groupId>
-			<artifactId>transport</artifactId>
+			<groupId>org.springframework.data</groupId>
+			<artifactId>spring-data-elasticsearch</artifactId>
 		</dependency>
-		<dependency>
-			<groupId>org.elasticsearch.client</groupId>
-			<artifactId>elasticsearch-rest-client</artifactId>
-		</dependency>
-		<dependency>
-			<groupId>org.elasticsearch.plugin</groupId>
-			<artifactId>transport-netty4-client</artifactId>
-		</dependency>
+
+
 		<dependency>
 			<!-- For RF2 Import -->
 			<groupId>org.snomed.otf</groupId>
@@ -111,16 +100,12 @@
 			<artifactId>spring-boot-starter-validation</artifactId>
 		</dependency>
 		<dependency>
-			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-activemq</artifactId>
+			<groupId>org.springframework</groupId>
+			<artifactId>spring-jms</artifactId>
 		</dependency>
 		<dependency>
 			<groupId>org.apache.activemq</groupId>
 			<artifactId>activemq-broker</artifactId>
-		</dependency>
-		<dependency>
-			<groupId>org.springframework.cloud</groupId>
-			<artifactId>spring-cloud-aws-autoconfigure</artifactId>
 		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
@@ -156,7 +141,7 @@
 		</dependency>
 		<dependency>
 			<groupId>org.springdoc</groupId>
-			<artifactId>springdoc-openapi-ui</artifactId>
+			<artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
 		</dependency>
 		<dependency>
 			<groupId>org.antlr</groupId>
@@ -167,19 +152,19 @@
 			<artifactId>modelmapper</artifactId>
 		</dependency>
 		<dependency>
-			<groupId>ca.uhn.hapi.fhir</groupId>
+			<groupId>org.snomed.fhir</groupId>
 			<artifactId>hapi-fhir-structures-r4</artifactId>
 		</dependency>
 		<dependency>
-			<groupId>ca.uhn.hapi.fhir</groupId>
+			<groupId>org.snomed.fhir</groupId>
 			<artifactId>hapi-fhir-server</artifactId>
 		</dependency>
 		<dependency>
-			<groupId>ca.uhn.hapi.fhir</groupId>
+			<groupId>org.snomed.fhir</groupId>
 			<artifactId>hapi-fhir-jpaserver-base</artifactId>
 			<exclusions>
 				<exclusion>
-					<groupId>ca.uhn.hapi.fhir</groupId>
+					<groupId>org.snomed.fhir</groupId>
 					<artifactId>hapi-fhir-sql-migrate</artifactId>
 				</exclusion>
 				<exclusion>
@@ -207,12 +192,42 @@
 					<groupId>org.glassfish</groupId>
 					<artifactId>javax.el</artifactId>
 				</exclusion>
+				<exclusion>
+					<groupId>org.springdoc</groupId>
+					<artifactId>springdoc-openapi-ui</artifactId>
+				</exclusion>
 			</exclusions>
 		</dependency>
 		<dependency>
-			<groupId>com.amazonaws</groupId>
-			<artifactId>aws-java-sdk-core</artifactId>
-			<scope>compile</scope>
+			<groupId>org.snomed.fhir</groupId>
+			<artifactId>hapi-fhir-jpaserver-model</artifactId>
+			<exclusions>
+				<exclusion>
+					<groupId>org.hibernate</groupId>
+					<artifactId>*</artifactId>
+				</exclusion>
+			</exclusions>
+		</dependency>
+		<dependency>
+			<groupId>commons-io</groupId>
+			<artifactId>commons-io</artifactId>
+			<version>2.14.0</version>
+		</dependency>
+		<dependency>
+			<groupId>org.apache.lucene</groupId>
+			<artifactId>lucene-analyzers-common</artifactId>
+		</dependency>
+
+		<dependency>
+			<groupId>io.awspring.cloud</groupId>
+			<artifactId>spring-cloud-aws-autoconfigure</artifactId>
+		</dependency>
+
+
+		<!-- AWS auth -->
+		<dependency>
+			<groupId>io.github.acm19</groupId>
+			<artifactId>aws-request-signing-apache-interceptor</artifactId>
 		</dependency>
 
 		<!-- Caching -->
@@ -304,6 +319,38 @@
 	</dependencyManagement>
 	<build>
 		<plugins>
+			<!--
+               Add the Add-Opens to the manifest file to allow snomed-owl-toolkit to work with java 17. Remove this when the owl-api is updated to use version 5
+           -->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-jar-plugin</artifactId>
+				<version>3.3.0</version>
+				<executions>
+					<execution>
+						<id>default-jar</id>
+						<phase>package</phase>
+						<goals>
+							<goal>jar</goal>
+						</goals>
+						<configuration>
+							<archive>
+								<manifestEntries>
+									<!-- required by owl toolkit and spring data elasticsearch version 4 -->
+									<Add-Opens>java.base/java.lang java.base/java.util</Add-Opens>
+								</manifestEntries>
+							</archive>
+						</configuration>
+					</execution>
+				</executions>
+			</plugin>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-surefire-plugin</artifactId>
+				<configuration>
+					<argLine>--add-opens java.base/java.util=ALL-UNNAMED --add-opens java.base/java.lang=ALL-UNNAMED</argLine>
+				</configuration>
+			</plugin>
 			<!-- Docker Image Build -->
 			<plugin>
 				<groupId>com.google.cloud.tools</groupId>
@@ -321,6 +368,7 @@
 						</environment>
 						<jvmFlags>
 							<jvmFlag>-Djava.security.egd=file:/dev/./urandom</jvmFlag>
+							<jvmFlag>--add-opens=java.base/java.lang=ALL-UNNAMED</jvmFlag>
 						</jvmFlags>
 						<ports>
 							<port>8080</port>
@@ -364,6 +412,7 @@
 			<plugin>
 				<groupId>org.jacoco</groupId>
 				<artifactId>jacoco-maven-plugin</artifactId>
+				<version>${jacoco-maven-plugin.version}</version>
 				<executions>
 					<execution>
 						<goals>
@@ -383,6 +432,7 @@
 			<plugin>
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
+				<version>${spring-boot.version}</version>
 				<configuration>
 					<mainClass>org.snomed.snowstorm.SnowstormApplication</mainClass>
 				</configuration>
@@ -451,6 +501,7 @@
 					<plugin>
 						<groupId>org.apache.maven.plugins</groupId>
 						<artifactId>maven-surefire-plugin</artifactId>
+						<version>${maven-surefire-plugin.version}</version>
 						<configuration>
 							<excludes>
 								<exclude>TraceabilityLogServiceTest</exclude>

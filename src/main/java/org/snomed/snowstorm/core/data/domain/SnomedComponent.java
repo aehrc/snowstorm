@@ -3,13 +3,14 @@ package org.snomed.snowstorm.core.data.domain;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonView;
 import io.kaicode.elasticvc.domain.DomainEntity;
-import org.elasticsearch.common.Strings;
 import org.snomed.snowstorm.rest.View;
 import org.springframework.data.annotation.Transient;
 import org.springframework.data.elasticsearch.annotations.Field;
 import org.springframework.data.elasticsearch.annotations.FieldType;
 
-import javax.validation.constraints.Size;
+import jakarta.validation.constraints.Size;
+import org.springframework.util.StringUtils;
+
 import java.io.Serializable;
 
 public abstract class SnomedComponent<C> extends DomainEntity<C> implements IdAndEffectiveTimeComponent, Serializable {
@@ -22,6 +23,7 @@ public abstract class SnomedComponent<C> extends DomainEntity<C> implements IdAn
 		String RELEASE_HASH = "releaseHash";
 		String RELEASED_EFFECTIVE_TIME = "releasedEffectiveTime";
 		String PATH = "path";
+		String START = "start";
 		String END = "end";
 	}
 
@@ -81,18 +83,15 @@ public abstract class SnomedComponent<C> extends DomainEntity<C> implements IdAn
 		setReleasedEffectiveTime(component.getReleasedEffectiveTime());
 	}
 
-	public boolean isReleasedMoreRecentlyThan(SnomedComponent another) {
+	public boolean isReleasedMoreRecentlyThan(SnomedComponent<C> another) {
 		if (another == null) {
 			return this.isReleased();
 		}
 		if (this.isReleased() && another.isReleased() && (this.getReleasedEffectiveTime() > another.getReleasedEffectiveTime())) {
 			return true;
 		}
-		if (this.isReleased() && !another.isReleased()) {
-			return true;
-		}
-		return false;
-	}
+        return this.isReleased() && !another.isReleased();
+    }
 
 	public void copyReleaseDetails(SnomedComponent<C> existingComponent, SnomedComponent<C> existingParentComponent) {
 		// Copy release details from the existing component, or the rebase parent branch version, whichever has been versioned more recently
@@ -118,7 +117,7 @@ public abstract class SnomedComponent<C> extends DomainEntity<C> implements IdAn
 	}
 
 	public String buildReleaseHash() {
-		return Strings.arrayToDelimitedString(getReleaseHashObjects(), "|");
+		return StringUtils.arrayToDelimitedString(getReleaseHashObjects(), "|");
 	}
 
 	protected abstract Object[] getReleaseHashObjects();

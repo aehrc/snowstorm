@@ -8,6 +8,8 @@
 - [Importing a new International Edition](#importing-a-new-international-edition)
 - [Upgrading an Extension/Edition to the new International Edition](#upgrading-an-extensionedition-to-the-new-international-edition)
 - [Upgrading to a new local Edition or Extension](#upgrading-to-a-new-local-edition-or-extension)
+- [Rolling back changes](#rolling-back-changes)
+
 
 ## Editions vs Extensions
 
@@ -52,7 +54,7 @@ Use the following in the request to create the branch:
 {
   "shortName": "SNOMEDCT-ES",
   "branchPath": "MAIN/SNOMEDCT-ES",
-  "dependantVersion": 20210131
+  "dependantVersionEffectiveTime": 20210131
 }
 ```
 The dependantVersion is the version of the Edition which the extension being imported is dependant on. For example an extension with an effective date of 20210430 might be dependant on the International Edition 20210131.
@@ -60,7 +62,7 @@ This field is used when creating the extension branch so that the new branch can
 
 There are many optional fields available for that request that can be used to provide additional information about the code system. These are used by the [SNOMED Browser project](https://github.com/IHTSDO/sct-browser-frontend).
 
-To run the command click 'Try it now'.
+To run the command click 'Execute'.
 
 The Spanish Extension can now be imported. Start the import process by creating a new import job. Look for the Import endpoint ( http://localhost:8080/swagger-ui.html#!/Import/createImportJobUsingPOST ) and then create a new import using:
 
@@ -72,7 +74,7 @@ The Spanish Extension can now be imported. Start the import process by creating 
 }
 ```
 
-Click on 'Try it now' and note the ID of the import as you will need it for the next step (look for a UUID like `d0b30d96-3714-443e-99a5-2f282b1f1b0` in the Location response header). 
+Click on 'Execute' and note the ID of the import as you will need it for the next step (look for a UUID like `d0b30d96-3714-443e-99a5-2f282b1f1b0` in the Location response header). 
 As before, the RF2 file needs to be uploaded next. This can be done through Swagger using the /imports/{importId}/archive endpoint, or via curl. In both cases, specify the ID recovered in the previous step:
 
 ```bash
@@ -95,7 +97,7 @@ Since Janurary 2022 a new SNOMED-CT International Edition release is published e
 }
 ```
 
-and then click on 'Try it now' and then note the id of the import as before. We now need to upload the July 2021 International release file as before:
+and then click on 'Execute' and then note the id of the import as before. We now need to upload the July 2021 International release file as before:
 
 ```bash
 curl -X POST --header 'Content-Type: multipart/form-data' --header 'Accept: application/json' -F file=@SnomedCT_InternationalRF2_PRODUCTION_20210731T120000Z.zip  'http://localhost:8080/imports/<import id>/archive'
@@ -128,7 +130,7 @@ The edition or extension upgrade is an import again. The SNAPSHOT import type ca
 }
 ```
 
-and then click on 'Try it now' and then note the id of the import as before. You now need to upload the October 2021 Spanish release file as before -
+and then click on 'Execute' and then note the id of the import as before. You now need to upload the October 2021 Spanish release file as before -
 
 ```bash
 curl -X POST --header 'Content-Type: multipart/form-data' --header 'Accept: application/json' -F file=@SnomedCT_SpanishRelease-es_Production_20211031T120000Z.zip  'http://localhost:8080/imports/<import id>/archive'
@@ -137,3 +139,30 @@ curl -X POST --header 'Content-Type: multipart/form-data' --header 'Accept: appl
 You can tail the system log to see how this is progressing, or simply to the import endpoint - http://localhost:8080/imports/<import id>
 
 And that's it... rinse and repeat for the next time...
+
+
+## Rolling back changes
+Sometimes content changes are imported into a Snowstorm instance for preview, before they are part of a proper release. 
+If changes of this type have been imported onto the codesystem branch they should be removed before importing the next release archive.
+
+If the daily-build function has been enabled this must be disabled before starting the rollback. Daily-build can be enabled again after importing the latest release.    
+
+Follow these steps to rollback a codesystem branch to the point of the latest release:
+- Get the codesystem to discover the latest **release branch**
+  - Use `GET /codesystems/{shortName}`. For example `GET /codesystems/SNOMEDCT-SE`
+  - In the response the latest **release branch** can be found under `latestVersion > branchPath`. For example `MAIN/SNOMEDCT-SE/2023-11-30`.
+- Get the latest **release branch** to check the branch state
+  - Use `GET /branches/{branch}`. For example `GET /branches/MAIN/SNOMEDCT-SE/2023-11-30`.
+  - In the response the branch `state` is shown.
+- The state of the **release branch** is dependant on the content of the **codesystem branch**.
+- If the **release branch** state is `UP_TO_DATE` that means the **codesystem branch** does not contain any changes since the latest release import and there is no need to rollback.
+- If the **release branch** state is `BEHIND` that means the **codesystem branch** contains changes since the latest release import that should be rolled back before importing a new release.
+
+- Rollback one commit on the **codesystem branch**:
+  - Get the **codesystem branch** using `GET /branches/{branch}`. For example `GET /branches/MAIN/SNOMEDCT-SE`.
+    - Make a note of the `headTimestamp`. For example `1701321893134`.
+  - Use the admin rollback function to revert the head commit of the **codesystem branch**
+    - Use `POST /admin/{branch}/actions/rollback-commit`, supplying the **codesystem branch** and the head timestamp.
+  - Get the **release branch**. If the status is `BEHIND` that means the **codesystem branch** needs rolling back further. Follow these steps again to rollback another commit. Repeat as many times as needed.
+ 
+Once the **release branch** state is `UP_TO_DATE` the codesystem is ready for upgrade. You probably need to import a new International Edition release and upgrade the extension before importing a new extension release. Steps for these are listed above.

@@ -10,8 +10,6 @@ import io.kaicode.elasticvc.api.BranchService;
 import io.kaicode.elasticvc.api.ComponentService;
 import io.kaicode.elasticvc.domain.Branch;
 import io.kaicode.elasticvc.domain.Commit;
-import org.assertj.core.util.Maps;
-import org.elasticsearch.common.collect.MapBuilder;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
@@ -30,8 +28,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
-import org.springframework.data.elasticsearch.core.query.NativeSearchQuery;
-import org.springframework.data.elasticsearch.core.query.NativeSearchQueryBuilder;
+import org.springframework.data.elasticsearch.client.elc.NativeQuery;
+import org.springframework.data.elasticsearch.client.elc.NativeQueryBuilder;
 import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.io.IOException;
@@ -40,7 +38,7 @@ import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import static io.kaicode.elasticvc.api.ComponentService.LARGE_PAGE;
-import static org.elasticsearch.index.query.QueryBuilders.termQuery;
+import static io.kaicode.elasticvc.helper.QueryHelper.termQuery;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.snomed.snowstorm.config.Config.DEFAULT_LANGUAGE_DIALECTS;
 import static org.snomed.snowstorm.core.data.domain.Concepts.*;
@@ -240,9 +238,16 @@ class ConceptServiceTest extends AbstractTest {
 		conceptService.create(new Concept(SNOMEDCT_ROOT).setDefinitionStatusId(PRIMITIVE).addDescription(fsn("SNOMED CT Concept")), path);
 
 		String conceptId = "100001";
-		conceptService.create(new Concept(conceptId).addAxiom(new Relationship(ISA, SNOMEDCT_ROOT)), path);
 
-		assertEquals(1, referenceSetMemberService.findMembers(path, conceptId, ComponentService.LARGE_PAGE).getTotalElements());
+		Annotation annotation = new Annotation();
+		annotation.setModuleId("900000000000207008");
+		annotation.setTypeId("123456");
+		annotation.setValue("Annotation with language");
+		annotation.setLanguageCode("en");
+
+		conceptService.create(new Concept(conceptId).addAxiom(new Relationship(ISA, SNOMEDCT_ROOT)).addAnnotation(annotation), path);
+
+		assertEquals(2, referenceSetMemberService.findMembers(path, conceptId, ComponentService.LARGE_PAGE).getTotalElements());
 
 		conceptService.deleteConceptAndComponents(conceptId, path, false);
 
@@ -459,7 +464,7 @@ class ConceptServiceTest extends AbstractTest {
 
 		// Create a new version on MAIN/A/A2 and promote to project
 		conceptService.update(new Concept("100003", "10000222"), "MAIN/A/A2");
-		branchMergeService.mergeBranchSync("MAIN/A/A2", "MAIN/A", Arrays.asList(conceptService.find("100003", "MAIN/A/A2")));
+		branchMergeService.mergeBranchSync("MAIN/A/A2", "MAIN/A", Collections.singletonList(conceptService.find("100003", "MAIN/A/A2")));
 
 		final List<Long> conceptIds = Arrays.asList(100003L, 100001L, 100002L);
 		final Page<Concept> conceptsOnProject = conceptService.find(conceptIds, DEFAULT_LANGUAGE_DIALECTS, "MAIN/A", ServiceTestUtil.PAGE_REQUEST);
@@ -498,7 +503,9 @@ class ConceptServiceTest extends AbstractTest {
 		assertEquals(1, description.getAcceptabilityMapFromLangRefsetMembers().size());
 
 		description.clearLanguageRefsetMembers();
-		description.setAcceptabilityMap(MapBuilder.newMapBuilder(new HashMap<String, String>()).put(US_EN_LANG_REFSET, PREFERRED_CONSTANT).map());
+		Map<String, String> acceptabilityMap =  new HashMap<>();
+		acceptabilityMap.put(US_EN_LANG_REFSET, PREFERRED_CONSTANT);
+		description.setAcceptabilityMap(acceptabilityMap);
 
 		Concept updatedConcept = conceptService.update(savedConcept, DEFAULT_LANGUAGE_DIALECTS, "MAIN");
 		assertEquals("Bleeding (morphologic abnormality)", updatedConcept.getFsn().getTerm());
@@ -506,6 +513,41 @@ class ConceptServiceTest extends AbstractTest {
 		description = updatedConcept.getDescriptions().iterator().next();
 		assertEquals("84923010", description.getDescriptionId());
 		assertEquals(1, description.getAcceptabilityMapFromLangRefsetMembers().size());
+	}
+
+	@Test
+	void testSaveConceptWithAnnotation() throws ServiceException {
+		final Concept concept = new Concept("50960005", 20020131, true, "900000000000207008", "900000000000074008");
+		concept.addDescription(new Description("84923010", 20020131, true, "900000000000207008", "50960005", "en", FSN,
+				"Bleeding (morphologic abnormality)", "900000000000020002").addLanguageRefsetMember(US_EN_LANG_REFSET, PREFERRED));
+		Annotation annotation1 = new Annotation();
+		annotation1.setModuleId("900000000000207008");
+		annotation1.setTypeId("123456");
+		annotation1.setValue("Annotation with language");
+		annotation1.setLanguageCode("en");
+
+		Annotation annotation2 = new Annotation();
+		annotation2.setModuleId("900000000000207008");
+		annotation2.setTypeId("123456789");
+		annotation2.setValue("Annotation without language");
+
+		concept.addAnnotation(annotation1);
+		concept.addAnnotation(annotation2);
+		conceptService.create(concept, DEFAULT_LANGUAGE_DIALECTS, "MAIN");
+
+		Concept savedConcept = conceptService.find("50960005", "MAIN");
+		assertEquals(2, savedConcept.getAnnotations().size());
+		for (Annotation annotation : savedConcept.getAnnotations()) {
+			assertEquals(Concepts.ANNOTATION_REFERENCE_SET, annotation.getRefsetId());
+			if (annotation.getLanguageCode() != null) {
+				assertEquals("123456", annotation.getTypeId());
+				assertEquals("en", annotation.getLanguageCode());
+				assertEquals("Annotation with language", annotation.getValue());
+			} else {
+				assertEquals("123456789", annotation.getTypeId());
+				assertEquals("Annotation without language", annotation.getValue());
+			}
+		}
 	}
 
 	@Test
@@ -1111,7 +1153,7 @@ class ConceptServiceTest extends AbstractTest {
 
 		// Check inactivation indicator reference set member was re-used
 		assertEquals(2, concept.getInactivationIndicatorMembers().size());
-		ReferenceSetMember newlyActiveinactivationIndicatorMember = concept.getInactivationIndicatorMembers().stream().filter(member -> member.isActive()).findFirst().orElse(null);
+		ReferenceSetMember newlyActiveinactivationIndicatorMember = concept.getInactivationIndicatorMembers().stream().filter(SnomedComponent::isActive).findFirst().orElse(null);
 		assertNotNull(newlyActiveinactivationIndicatorMember);
 		assertEquals(Concepts.CONCEPT_NON_CURRENT, newlyActiveinactivationIndicatorMember.getAdditionalField("valueId"));
 
@@ -1844,7 +1886,7 @@ class ConceptServiceTest extends AbstractTest {
 		conceptService.update(concept, branch);
 
 		Branch latestCommit = branchService.findLatest(branch);
-		NativeSearchQuery query = new NativeSearchQueryBuilder().withQuery(termQuery("start", latestCommit.getHeadTimestamp())).build();
+		NativeQuery query = new NativeQueryBuilder().withQuery(termQuery("start", latestCommit.getHeadTimestamp())).build();
 		assertEquals(0, elasticsearchOperations.count(query, Concept.class));
 		assertEquals(0, elasticsearchOperations.count(query, Relationship.class));
 		assertEquals(0, elasticsearchOperations.count(query, Description.class));

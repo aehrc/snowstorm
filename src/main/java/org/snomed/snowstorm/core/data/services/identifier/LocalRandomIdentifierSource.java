@@ -5,15 +5,15 @@ import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongLinkedOpenHashSet;
 import org.snomed.snowstorm.core.data.domain.*;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.data.elasticsearch.core.ElasticsearchRestTemplate;
-import org.springframework.data.elasticsearch.core.query.NativeSearchQueryBuilder;
+import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
+import org.springframework.data.elasticsearch.client.elc.NativeQueryBuilder;
 
 import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-import static org.elasticsearch.index.query.QueryBuilders.termsQuery;
+import static io.kaicode.elasticvc.helper.QueryHelper.termsQuery;
 
 /**
  * Generates SNOMED Component identifiers locally using random numbers.
@@ -21,14 +21,17 @@ import static org.elasticsearch.index.query.QueryBuilders.termsQuery;
  */
 public class LocalRandomIdentifierSource implements IdentifierSource {
 
-	public static final String POSTCOORDINATED_EXPRESSION_PARTITION_ID = "06";
+	public static final String POSTCOORDINATED_EXPRESSION_PARTITION_ID = "16";
 
-	private final ElasticsearchRestTemplate elasticsearchTemplate;
+	private final ElasticsearchOperations elasticsearchOperations;
 
 	private ItemIdProvider itemIdProvider;
 
-	public LocalRandomIdentifierSource(ElasticsearchRestTemplate elasticsearchTemplate) {
-		this.elasticsearchTemplate = elasticsearchTemplate;
+	public LocalRandomIdentifierSource(ElasticsearchOperations elasticsearchOperations) {
+		if (elasticsearchOperations == null) {
+			System.out.println("ElasticsearchOperations must not be null.");
+		}
+		this.elasticsearchOperations = elasticsearchOperations;
 		itemIdProvider = new RandomItemIdProvider();
 	}
 
@@ -49,25 +52,18 @@ public class LocalRandomIdentifierSource implements IdentifierSource {
 				List<Long> alreadyExistingIdentifiers = new LongArrayList();
 				for (List<Long> newIdentifierBatch : Lists.partition(newIdentifierList, 10_000)) {
 					switch (partitionId) {
-						case "00":
-						case "10":
+						case "00", "10" ->
 							// Concept identifier
 							alreadyExistingIdentifiers.addAll(findExistingIdentifiersInAnyBranch(newIdentifierBatch, Concept.class, Concept.Fields.CONCEPT_ID));
-							break;
-						case "01":
-						case "11":
+						case "01", "11" ->
 							// Description identifier
 							alreadyExistingIdentifiers.addAll(findExistingIdentifiersInAnyBranch(newIdentifierBatch, Description.class, Description.Fields.DESCRIPTION_ID));
-							break;
-						case "02":
-						case "12":
+						case "02", "12" ->
 							// Relationship identifier
 							alreadyExistingIdentifiers.addAll(findExistingIdentifiersInAnyBranch(newIdentifierBatch, Relationship.class, Relationship.Fields.RELATIONSHIP_ID));
-							break;
-						case "06":
+						case "16" ->
 							// Expression identifier
 							alreadyExistingIdentifiers.addAll(findExistingIdentifiersInAnyBranch(newIdentifierBatch, ReferenceSetMember.class, ReferenceSetMember.Fields.REFERENCED_COMPONENT_ID));
-							break;
 					}
 				}
 				// Remove any identifiers which already exist in storage - more will be generated in the next loop.
@@ -80,10 +76,10 @@ public class LocalRandomIdentifierSource implements IdentifierSource {
 
 	// Finds and returns matching existing identifiers
 	private List<Long> findExistingIdentifiersInAnyBranch(List<Long> identifiers, Class<? extends SnomedComponent> snomedComponentClass, String idField) {
-		NativeSearchQueryBuilder queryBuilder = new NativeSearchQueryBuilder()
+		NativeQueryBuilder queryBuilder = new NativeQueryBuilder()
 				.withQuery(termsQuery(idField, identifiers))
 				.withPageable(PageRequest.of(0, identifiers.size()));
-		return elasticsearchTemplate.search(queryBuilder.build(), snomedComponentClass)
+		return elasticsearchOperations.search(queryBuilder.build(), snomedComponentClass)
 				.stream().map(hit -> Long.parseLong(hit.getContent().getId())).collect(Collectors.toList());
 	}
 

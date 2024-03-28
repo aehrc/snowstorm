@@ -2,21 +2,27 @@ package org.snomed.snowstorm.validation;
 
 import com.google.common.collect.Sets;
 import io.kaicode.elasticvc.api.BranchCriteria;
+import io.kaicode.elasticvc.api.ComponentService;
 import org.ihtsdo.drools.domain.Relationship;
 import org.snomed.snowstorm.config.Config;
 import org.snomed.snowstorm.core.data.domain.Concept;
 import org.snomed.snowstorm.core.data.domain.Concepts;
+import org.snomed.snowstorm.core.data.domain.ReferenceSetMember;
+import org.snomed.snowstorm.core.data.domain.SnomedComponent;
 import org.snomed.snowstorm.validation.domain.DroolsConcept;
 import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
 import org.springframework.data.elasticsearch.core.SearchHit;
-import org.springframework.data.elasticsearch.core.query.NativeSearchQuery;
-import org.springframework.data.elasticsearch.core.query.NativeSearchQueryBuilder;
+import org.springframework.data.elasticsearch.client.elc.NativeQuery;
+import org.springframework.data.elasticsearch.client.elc.NativeQueryBuilder;
+import org.springframework.data.elasticsearch.core.SearchHitsIterator;
+import org.springframework.util.CollectionUtils;
 
 import java.util.*;
 import java.util.stream.Collectors;
 
-import static org.elasticsearch.index.query.QueryBuilders.boolQuery;
-import static org.elasticsearch.index.query.QueryBuilders.termQuery;
+import static co.elastic.clients.elasticsearch._types.query_dsl.QueryBuilders.bool;
+import static io.kaicode.elasticvc.helper.QueryHelper.termQuery;
+import static io.kaicode.elasticvc.helper.QueryHelper.termsQuery;
 
 public class ConceptDroolsValidationService implements org.ihtsdo.drools.service.ConceptService {
 
@@ -37,11 +43,11 @@ public class ConceptDroolsValidationService implements org.ihtsdo.drools.service
 	@Override
 	public boolean isActive(String conceptId) {
 		if (!conceptActiveStates.containsKey(conceptId)) {
-			NativeSearchQuery query = new NativeSearchQueryBuilder()
-					.withQuery(boolQuery()
+			NativeQuery query = new NativeQueryBuilder()
+					.withQuery(bool(b -> b
 							.must(branchCriteria.getEntityBranchCriteria(Concept.class))
 							.must(termQuery(Concept.Fields.CONCEPT_ID, conceptId))
-							.must(termQuery(Concept.Fields.ACTIVE, true)))
+							.must(termQuery(Concept.Fields.ACTIVE, true))))
 					.withPageable(Config.PAGE_OF_ONE)
 					.build();
 			List<Concept> matches = elasticsearchTemplate.search(query, Concept.class).stream().map(SearchHit::getContent).collect(Collectors.toList());
@@ -51,12 +57,37 @@ public class ConceptDroolsValidationService implements org.ihtsdo.drools.service
 	}
 
 	@Override
+	public boolean isInactiveConceptSameAs(String inactiveConceptId, String conceptId) {
+		final NativeQueryBuilder queryBuilder = new NativeQueryBuilder();
+		queryBuilder.withQuery(bool(bq -> bq
+						.must(branchCriteria.getEntityBranchCriteria(ReferenceSetMember.class))
+						.must(termQuery(ReferenceSetMember.Fields.REFSET_ID, Concepts.REFSET_SAME_AS_ASSOCIATION))
+						.must(termQuery(ReferenceSetMember.Fields.REFERENCED_COMPONENT_ID, inactiveConceptId))
+						.must(termQuery(SnomedComponent.Fields.ACTIVE, true))))
+				.withPageable(ComponentService.LARGE_PAGE);
+		// Join Members
+		List<ReferenceSetMember> associationTargetMembers = new ArrayList<>();
+		try (final SearchHitsIterator <ReferenceSetMember> members = elasticsearchTemplate.searchForStream(queryBuilder.build(), ReferenceSetMember.class)) {
+			members.forEachRemaining(hit -> {
+				ReferenceSetMember member = hit.getContent();
+				associationTargetMembers.add(member);
+			});
+		}
+		for (ReferenceSetMember member : associationTargetMembers) {
+			if (member.getAdditionalField(ReferenceSetMember.AssociationFields.TARGET_COMP_ID).equals(conceptId)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	@Override
 	public org.ihtsdo.drools.domain.Concept findById(String conceptId) {
 		if (!concepts.containsKey(conceptId)) {
-			NativeSearchQuery query = new NativeSearchQueryBuilder()
-					.withQuery(boolQuery()
+			NativeQuery query = new NativeQueryBuilder()
+					.withQuery(bool(b -> b
 							.must(branchCriteria.getEntityBranchCriteria(Concept.class))
-							.must(termQuery(Concept.Fields.CONCEPT_ID, conceptId)))
+							.must(termQuery(Concept.Fields.CONCEPT_ID, conceptId))))
 					.withPageable(Config.PAGE_OF_ONE)
 					.build();
 			List<Concept> matches = elasticsearchTemplate.search(query, Concept.class).stream().map(SearchHit::getContent).collect(Collectors.toList());

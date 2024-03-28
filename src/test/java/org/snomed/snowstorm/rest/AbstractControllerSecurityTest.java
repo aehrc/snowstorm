@@ -13,17 +13,13 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
-import org.springframework.boot.web.server.LocalServerPort;
+import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.*;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.junit.jupiter.SpringExtension;
 
-import java.net.URI;
-import java.util.Calendar;
 import java.util.Collections;
-import java.util.GregorianCalendar;
 
-import static java.lang.String.format;
 import static org.junit.jupiter.api.Assertions.*;
 
 @ExtendWith(SpringExtension.class)
@@ -119,7 +115,7 @@ public abstract class AbstractControllerSecurityTest extends AbstractTest {
 		combinedHeaders.addAll(requestEntity.getHeaders());
 		combinedHeaders.addAll(imsHeaders);
 		ResponseEntity<String> response = restTemplate.exchange(new RequestEntity<>(requestEntity.getBody(), combinedHeaders, requestEntity.getMethod(), requestEntity.getUrl()), String.class);
-		assertEquals(expectedStatusCode, response.getStatusCodeValue(), response.getBody());
+		assertEquals(expectedStatusCode, response.getStatusCode().value(), response.getBody());
 		return response;
 	}
 

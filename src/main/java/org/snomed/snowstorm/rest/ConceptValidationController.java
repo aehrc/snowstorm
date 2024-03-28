@@ -14,7 +14,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
-import javax.validation.constraints.NotNull;
+import jakarta.validation.constraints.NotNull;
 import java.util.List;
 import java.util.Set;
 
@@ -56,8 +56,8 @@ public class ConceptValidationController {
 
 	@GetMapping(value = "/validation-maintenance/semantic-tags")
 	@Operation(description = "Retrieve all semantic tags.")
-	public Set<String> getSemantictTags() {
-		return validationService.getSemanticTags();
+	public Set<String> getSemantictTags(@RequestParam(required = false, defaultValue="en") String language) {
+		return validationService.getSemanticTags(language);
 	}
 
 	@GetMapping(value = "/{branch}/report/inactive-concepts-without-association")

@@ -7,7 +7,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.elasticsearch.repository.ElasticsearchRepository;
 import org.springframework.stereotype.Service;
 
-import javax.annotation.PostConstruct;
+import jakarta.annotation.PostConstruct;
 import java.util.*;
 
 @Service
@@ -21,6 +21,9 @@ public class DomainEntityConfiguration {
 
 	@Autowired
 	private RelationshipRepository relationshipRepository;
+
+	@Autowired
+	private IdentifierRepository identifierRepository;
 
 	@Autowired
 	private ReferenceSetMemberRepository referenceSetMemberRepository;
@@ -42,6 +45,7 @@ public class DomainEntityConfiguration {
 		componentTypeRepositoryMap = new LinkedHashMap<>();
 		componentTypeRepositoryMap.put(Concept.class, conceptRepository);
 		componentTypeRepositoryMap.put(Description.class, descriptionRepository);
+		componentTypeRepositoryMap.put(Identifier.class, identifierRepository);
 		componentTypeRepositoryMap.put(Relationship.class, relationshipRepository);
 		componentTypeRepositoryMap.put(ReferenceSetMember.class, referenceSetMemberRepository);
 		componentTypeRepositoryMap = Collections.unmodifiableMap(componentTypeRepositoryMap);

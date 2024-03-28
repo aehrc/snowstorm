@@ -1,16 +1,14 @@
 package org.snomed.snowstorm.core.data.domain.review;
 
 import org.springframework.data.annotation.Id;
-import org.springframework.data.elasticsearch.annotations.DateFormat;
-import org.springframework.data.elasticsearch.annotations.Document;
-import org.springframework.data.elasticsearch.annotations.Field;
-import org.springframework.data.elasticsearch.annotations.FieldType;
+import org.springframework.data.elasticsearch.annotations.*;
 
-import javax.validation.constraints.NotNull;
+import jakarta.validation.constraints.NotNull;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.Set;
 
-@Document(indexName = "branch-review")
+@Document(indexName = "#{@indexNameProvider.indexName('branch-review')}", createIndex = false)
 public class BranchReview {
 
 	@Id
@@ -21,7 +19,7 @@ public class BranchReview {
 	@Field(type = FieldType.Boolean)
 	private boolean sourceIsParent;
 
-	@Field(type = FieldType.Date, format = DateFormat.date_optional_time)
+	@Field(type = FieldType.Long)
 	private Date lastUpdated;
 
 	@Field(type = FieldType.Keyword)
@@ -81,5 +79,13 @@ public class BranchReview {
 
 	public void setChangedConcepts(Set<Long> changedConcepts) {
 		this.changedConcepts = changedConcepts;
+	}
+
+	public void addChangedConcepts(Set<Long> changedConcepts) {
+		if (this.changedConcepts == null) {
+			this.changedConcepts = new HashSet<>();
+		}
+
+		this.changedConcepts.addAll(changedConcepts);
 	}
 }

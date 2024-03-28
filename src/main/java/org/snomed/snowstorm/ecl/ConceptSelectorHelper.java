@@ -1,15 +1,15 @@
 package org.snomed.snowstorm.ecl;
 
+import co.elastic.clients.elasticsearch._types.SortOptions;
+import co.elastic.clients.elasticsearch._types.SortOrder;
+import co.elastic.clients.elasticsearch._types.query_dsl.BoolQuery;
+import co.elastic.clients.elasticsearch._types.query_dsl.Query;
 import com.google.common.collect.Sets;
 import io.kaicode.elasticvc.api.BranchCriteria;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongComparators;
 import org.apache.commons.lang3.NotImplementedException;
-import org.elasticsearch.index.query.BoolQueryBuilder;
-import org.elasticsearch.index.query.QueryBuilder;
-import org.elasticsearch.search.sort.FieldSortBuilder;
-import org.elasticsearch.search.sort.SortBuilders;
-import org.elasticsearch.search.sort.SortOrder;
+
 import org.snomed.snowstorm.core.data.domain.Concept;
 import org.snomed.snowstorm.core.data.domain.QueryConcept;
 import org.snomed.snowstorm.core.util.PageHelper;
@@ -17,17 +17,20 @@ import org.snomed.snowstorm.ecl.domain.RefinementBuilder;
 import org.snomed.snowstorm.ecl.domain.RefinementBuilderImpl;
 import org.snomed.snowstorm.ecl.domain.expressionconstraint.SExpressionConstraint;
 import org.snomed.snowstorm.rest.converter.SearchAfterHelper;
+import org.snomed.snowstorm.rest.pojo.SearchAfterPageRequest;
 import org.springframework.data.domain.*;
-import org.springframework.data.elasticsearch.core.SearchAfterPageRequest;
 import org.springframework.data.elasticsearch.core.SearchHitsIterator;
-import org.springframework.data.elasticsearch.core.query.NativeSearchQueryBuilder;
+import org.springframework.data.elasticsearch.client.elc.NativeQueryBuilder;
+import org.springframework.data.elasticsearch.core.query.FetchSourceFilter;
 
 import java.util.*;
 import java.util.function.Function;
 
+import static co.elastic.clients.elasticsearch._types.query_dsl.QueryBuilders.bool;
 import static io.kaicode.elasticvc.api.ComponentService.LARGE_PAGE;
 import static java.util.stream.Collectors.toList;
-import static org.elasticsearch.index.query.QueryBuilders.*;
+import static io.kaicode.elasticvc.helper.QueryHelper.*;
+import static org.snomed.snowstorm.core.util.SearchAfterQueryHelper.updateQueryWithSearchAfter;
 
 public class ConceptSelectorHelper {
 
@@ -49,8 +52,8 @@ public class ConceptSelectorHelper {
 	public static Page<Long> select(SExpressionConstraint sExpressionConstraint, BranchCriteria branchCriteria, boolean stated,
 			Collection<Long> conceptIdFilter, PageRequest pageRequest, ECLContentService eclContentService, boolean triedCache) {
 
-		BoolQueryBuilder query = getBranchAndStatedQuery(branchCriteria.getEntityBranchCriteria(QueryConcept.class), stated);
-		RefinementBuilder refinementBuilder = new RefinementBuilderImpl(query, branchCriteria, stated, eclContentService);
+		BoolQuery.Builder queryBuilder = bool().must(getBranchAndStatedQuery(branchCriteria.getEntityBranchCriteria(QueryConcept.class), stated));
+		RefinementBuilder refinementBuilder = new RefinementBuilderImpl(queryBuilder, branchCriteria, stated, eclContentService);
 
 		// This can add an inclusionFilter to the refinementBuilder or run pre-selections to apply filters
 
@@ -60,22 +63,22 @@ public class ConceptSelectorHelper {
 		if (prefetchResult.isSet()) {
 			return getPage(pageRequest, prefetchResult.getIds());
 		} else {
-			return fetchIds(query, conceptIdFilter, refinementBuilder, pageRequest);
+			return fetchIds(queryBuilder.build()._toQuery(), conceptIdFilter, refinementBuilder, pageRequest);
 		}
 	}
 
-	public static BoolQueryBuilder getBranchAndStatedQuery(QueryBuilder branchCriteria, boolean stated) {
-		return boolQuery()
+	public static Query getBranchAndStatedQuery(Query branchCriteria, boolean stated) {
+		return bool(b -> b
 				.must(branchCriteria)
-				.must(termQuery(QueryConcept.Fields.STATED, stated));
+				.must(termQuery(QueryConcept.Fields.STATED, stated)));
 	}
 
-	public static Page<Long> fetchWildcardIds(BoolQueryBuilder query, Collection<Long> filterByConceptIds,
+	public static Page<Long> fetchWildcardIds(Query query, Collection<Long> filterByConceptIds,
 			PageRequest pageRequest, ECLContentService conceptSelector) {
 
-		NativeSearchQueryBuilder searchQueryBuilder = new NativeSearchQueryBuilder()
+		NativeQueryBuilder searchQueryBuilder = new NativeQueryBuilder()
 				.withQuery(query)
-				.withFields(QueryConcept.Fields.CONCEPT_ID);
+				.withSourceFilter(new FetchSourceFilter(new String[]{QueryConcept.Fields.CONCEPT_ID}, null));
 
 		if (filterByConceptIds != null) {
 			searchQueryBuilder.withFilter(termsQuery(QueryConcept.Fields.CONCEPT_ID, filterByConceptIds));
@@ -95,7 +98,7 @@ public class ConceptSelectorHelper {
 			} else {
 				searchQueryBuilder.withPageable(pageRequest);
 			}
-			Page<QueryConcept> queryConcepts = conceptSelector.queryForPage(searchQueryBuilder.build());
+			Page<QueryConcept> queryConcepts = conceptSelector.queryForPage(updateQueryWithSearchAfter(searchQueryBuilder.build(), pageRequest));
 			List<Long> ids = queryConcepts.getContent().stream().map(QueryConcept::getConceptIdL).collect(toList());
 			return new PageImpl<>(ids, pageRequest, queryConcepts.getTotalElements());
 		} else {
@@ -103,9 +106,7 @@ public class ConceptSelectorHelper {
 			searchQueryBuilder.withPageable(LARGE_PAGE);
 			List<Long> addIds = new LongArrayList();
 			try (SearchHitsIterator<QueryConcept> stream = conceptSelector.streamQueryResults(searchQueryBuilder.build())) {
-				stream.forEachRemaining(hit -> {
-					addIds.add(hit.getContent().getConceptIdL());
-				});
+				stream.forEachRemaining(hit -> addIds.add(hit.getContent().getConceptIdL()));
 			}
 
 			// Stream search doesn't sort for us
@@ -115,14 +116,14 @@ public class ConceptSelectorHelper {
 		}
 	}
 
-	public static Page<Long> fetchIds(BoolQueryBuilder query, Collection<Long> filterByConceptIds, RefinementBuilder refinementBuilder, PageRequest pageRequest) {
+	public static Page<Long> fetchIds(Query query, Collection<Long> filterByConceptIds, RefinementBuilder refinementBuilder, PageRequest pageRequest) {
 
 		Function<QueryConcept, Boolean> inclusionFilter = refinementBuilder.getInclusionFilter();
 		ECLContentService eclContentService = refinementBuilder.getEclContentService();
 
-		NativeSearchQueryBuilder searchQueryBuilder = new NativeSearchQueryBuilder()
+		NativeQueryBuilder searchQueryBuilder = new NativeQueryBuilder()
 				.withQuery(query)
-				.withFields(getRequiredFields(inclusionFilter));
+				.withSourceFilter(new FetchSourceFilter(getRequiredFields(inclusionFilter), null));
 
 		if (filterByConceptIds != null) {
 			searchQueryBuilder.withFilter(termsQuery(QueryConcept.Fields.CONCEPT_ID, filterByConceptIds));
@@ -142,7 +143,7 @@ public class ConceptSelectorHelper {
 			} else {
 				searchQueryBuilder.withPageable(pageRequest);
 			}
-			Page<QueryConcept> queryConcepts = eclContentService.queryForPage(searchQueryBuilder.build());
+			Page<QueryConcept> queryConcepts = eclContentService.queryForPage(updateQueryWithSearchAfter(searchQueryBuilder.build(), pageRequest));
 			List<Long> ids = queryConcepts.getContent().stream().map(QueryConcept::getConceptIdL).collect(toList());
 			return new PageImpl<>(ids, pageRequest, queryConcepts.getTotalElements());
 		} else {
@@ -173,12 +174,12 @@ public class ConceptSelectorHelper {
 		}
 	}
 
-	public static FieldSortBuilder getDefaultSortForQueryConcept() {
-		return SortBuilders.fieldSort(QueryConcept.Fields.CONCEPT_ID).order(SortOrder.DESC);
+	public static SortOptions getDefaultSortForQueryConcept() {
+		return SortOptions.of(s -> s.field(f -> f.field(QueryConcept.Fields.CONCEPT_ID).order(SortOrder.Desc)));
 	}
 
-	public static FieldSortBuilder getDefaultSortForConcept() {
-		return SortBuilders.fieldSort(Concept.Fields.CONCEPT_ID).order(SortOrder.DESC);
+	public static SortOptions getDefaultSortForConcept() {
+		return SortOptions.of(s -> s.field(f -> f.field(Concept.Fields.CONCEPT_ID).order(SortOrder.Desc)));
 	}
 
 	private static String[] getRequiredFields(Function<QueryConcept, Boolean> inclusionFilter) {

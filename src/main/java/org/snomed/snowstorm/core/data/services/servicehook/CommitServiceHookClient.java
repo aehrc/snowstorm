@@ -3,6 +3,7 @@ package org.snomed.snowstorm.core.data.services.servicehook;
 import io.kaicode.elasticvc.api.CommitListener;
 import io.kaicode.elasticvc.domain.Branch;
 import io.kaicode.elasticvc.domain.Commit;
+import org.apache.commons.lang3.StringUtils;
 import org.ihtsdo.sso.integration.SecurityUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,7 +16,6 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
-import org.springframework.util.StringUtils;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
@@ -81,7 +81,7 @@ public class CommitServiceHookClient implements CommitListener {
 			logRequest(commit, authenticationToken, commit.getBranch());
 			ResponseEntity<?> responseEntity = restTemplate.postForEntity("/integration/snowstorm/commit",
 					new HttpEntity<>(new CommitInformation(commit), httpHeaders), Void.class);
-			logger.info("External system returned HTTP status code {}.", responseEntity.getStatusCodeValue());
+			logger.info("External system returned HTTP status code {}.", responseEntity.getStatusCode().value());
 		} catch (HttpClientErrorException.Conflict e) {
 			// External system indicates criteria has not been completed.
 			logger.error("External system indicates not all criteria have been completed.");

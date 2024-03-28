@@ -8,19 +8,21 @@ import org.springframework.data.annotation.Transient;
 import org.springframework.data.elasticsearch.annotations.Document;
 import org.springframework.data.elasticsearch.annotations.Field;
 import org.springframework.data.elasticsearch.annotations.FieldType;
+import org.springframework.data.elasticsearch.annotations.Setting;
 
 import java.io.Serializable;
 
-@Document(indexName = "classification-relationship-change")
+@Document(indexName = "#{@indexNameProvider.indexName('classification-relationship-change')}", createIndex = false)
 public class RelationshipChange {
 
 	public interface Fields {
 		String SOURCE_ID = "sourceId";
+		String INTERNAL_ID = "internalId";
 		String GROUP = "group";
 	}
 
 	@Id
-	@Field
+	@Field(type = FieldType.Keyword)
 	private String internalId;
 
 	@Field(type = FieldType.Keyword)

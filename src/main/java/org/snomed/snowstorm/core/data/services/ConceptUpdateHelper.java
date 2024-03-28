@@ -9,6 +9,7 @@ import io.kaicode.elasticvc.api.VersionControlHelper;
 import io.kaicode.elasticvc.domain.Commit;
 import io.kaicode.elasticvc.domain.DomainEntity;
 import io.kaicode.elasticvc.domain.Metadata;
+import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.snomed.otf.owltoolkit.conversion.ConversionException;
@@ -27,10 +28,9 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
 import org.springframework.data.elasticsearch.core.SearchHitsIterator;
-import org.springframework.data.elasticsearch.core.query.NativeSearchQuery;
-import org.springframework.data.elasticsearch.core.query.NativeSearchQueryBuilder;
+import org.springframework.data.elasticsearch.client.elc.NativeQuery;
+import org.springframework.data.elasticsearch.client.elc.NativeQueryBuilder;
 import org.springframework.stereotype.Service;
-import org.springframework.util.StringUtils;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -38,8 +38,8 @@ import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
-import static org.elasticsearch.index.query.QueryBuilders.boolQuery;
-import static org.elasticsearch.index.query.QueryBuilders.termsQuery;
+import static co.elastic.clients.elasticsearch._types.query_dsl.QueryBuilders.bool;
+import static io.kaicode.elasticvc.helper.QueryHelper.termsQuery;
 import static org.snomed.snowstorm.core.data.domain.Concepts.CONCEPT_NON_CURRENT;
 import static org.snomed.snowstorm.core.data.domain.Concepts.inactivationIndicatorNames;
 
@@ -51,6 +51,9 @@ public class ConceptUpdateHelper extends ComponentService {
 
 	@Autowired
 	private DescriptionRepository descriptionRepository;
+
+	@Autowired
+	private IdentifierRepository identifierRepository;
 
 	@Autowired
 	private RelationshipRepository relationshipRepository;
@@ -131,6 +134,8 @@ public class ConceptUpdateHelper extends ComponentService {
 
 		// Create collections of components that will be written to store, including deletions
 		List<Description> descriptionsToPersist = new ArrayList<>();
+		// Todo: un-comment out this line when allowing the alternative identifier modification
+		// List<Identifier> identifiersToPersist = new ArrayList<>();
 		List<Relationship> relationshipsToPersist = new ArrayList<>();
 		List<ReferenceSetMember> refsetMembersToPersist = new ArrayList<>();
 
@@ -258,6 +263,11 @@ public class ConceptUpdateHelper extends ComponentService {
 			markDeletionsAndUpdates(newVersionConcept, existingConcept, existingConceptFromParent, Concept::getDescriptions,
 					defaultModuleId, descriptionsToPersist, rebaseConflictSave);
 
+			// Todo: un-comment out this line when allowing the alternative identifier modification
+			// Alternative Identifiers
+			// markDeletionsAndUpdates(newVersionConcept, existingConcept, existingConceptFromParent, Concept::getIdentifiers,
+			//		defaultModuleId, identifiersToPersist, rebaseConflictSave);
+
 			// Relationships
 			markDeletionsAndUpdates(newVersionConcept, existingConcept, existingConceptFromParent, Concept::getRelationships,
 					defaultModuleId, relationshipsToPersist, rebaseConflictSave);
@@ -265,6 +275,11 @@ public class ConceptUpdateHelper extends ComponentService {
 			// Axiom refset members
 			markDeletionsAndUpdates(newVersionConcept, existingConcept, existingConceptFromParent, Concept::getAllOwlAxiomMembers,
 					defaultModuleId, refsetMembersToPersist, rebaseConflictSave);
+			
+			// Annotation refset members
+			markDeletionsAndUpdates(newVersionConcept, existingConcept, existingConceptFromParent, Concept::getAllAnnotationMembers,
+					defaultModuleId, refsetMembersToPersist, rebaseConflictSave);
+
 
 			for (Description description : newVersionConcept.getDescriptions()) {
 				Description existingDescription = getExistingComponent(existingConcept, ConceptView::getDescriptions, description.getDescriptionId());
@@ -277,6 +292,7 @@ public class ConceptUpdateHelper extends ComponentService {
 
 			// Detach concept's components to ensure concept persisted without collections
 			newVersionConcept.getDescriptions().clear();
+			newVersionConcept.getIdentifiers().clear();
 			newVersionConcept.getRelationships().clear();
 			newVersionConcept.getClassAxioms().clear();
 			newVersionConcept.getGciAxioms().clear();
@@ -285,6 +301,9 @@ public class ConceptUpdateHelper extends ComponentService {
 		// TODO: Try saving all core component types at once - Elasticsearch likes multi-threaded writes.
 		doSaveBatchConcepts(newVersionConcepts, commit);
 		doSaveBatchDescriptions(descriptionsToPersist, commit);
+
+		// Todo: un-comment out this line when allowing the alternative identifier modification
+		// doSaveBatchIdentifiers(identifiersToPersist, commit);
 		doSaveBatchRelationships(relationshipsToPersist, commit);
 
 		refsetMembersToPersist.stream().filter(m -> m.getModuleId() == null).forEach(m -> m.setModuleId(defaultModuleId));
@@ -294,7 +313,8 @@ public class ConceptUpdateHelper extends ComponentService {
 		// Store assigned identifiers for registration with CIS
 		identifierService.persistAssignedIdsForRegistration(reservedIds);
 
-		return new PersistedComponents(newVersionConcepts, descriptionsToPersist, relationshipsToPersist, refsetMembersToPersist);
+		// Todo: use identifiersToPersist when allowing the alternative identifier modification
+		return new PersistedComponents(newVersionConcepts, descriptionsToPersist, /* identifiersToPersist */ Collections.emptySet() , relationshipsToPersist, refsetMembersToPersist);
 	}
 
 	private <C extends SnomedComponent<?>, T extends SnomedComponent<?>> Collection<C> getExistingComponents(T existingConcept, Function<T, Collection<C>> getter) {
@@ -367,8 +387,7 @@ public class ConceptUpdateHelper extends ComponentService {
 			String indicatorReferenceSet,
 			String defaultModuleId) {
 
-		if (newComponent instanceof Description) {
-			Description newDescription = (Description) newComponent;
+		if (newComponent instanceof Description newDescription) {
 			if (newDescription.isActive()) {
 				for (ReferenceSetMember inactivationIndicatorMember : newDescription.getInactivationIndicatorMembers()) {
 					if (inactivationIndicatorMember.isActive() && !inactivationIndicatorMember.getAdditionalField("valueId").equals(CONCEPT_NON_CURRENT)) {
@@ -430,7 +449,7 @@ public class ConceptUpdateHelper extends ComponentService {
 		}
 
 		// Find existing members to keep - use an existing one that has the same value in release hash if we can
-		if (membersRequired.size() > 0 && toKeep.isEmpty()) {
+		if (!membersRequired.isEmpty() && toKeep.isEmpty()) {
 			notNeeded.clear();
 			for (ReferenceSetMember existingMember : existingMembers) {
 				final String refsetId = existingMember.getRefsetId();
@@ -452,7 +471,7 @@ public class ConceptUpdateHelper extends ComponentService {
 		}
 
 		//Otherwise, value is mutable, so we can re-use any member with the same refsetId and modify the value
-		if (membersRequired.size() > 0 && toKeep.isEmpty()) {
+		if (!membersRequired.isEmpty() && toKeep.isEmpty()) {
 			notNeeded.clear();
 			Set<String> reUsedMemberIds = new HashSet<>();
 			//Any existing refset members that exactly matched refsetId + value would have matched above
@@ -476,7 +495,7 @@ public class ConceptUpdateHelper extends ComponentService {
 					}
 				}
 			}
-			notNeeded.addAll(existingMembers.stream().filter(member -> !reUsedMemberIds.contains(member.getMemberId())).collect(Collectors.toList()));
+			notNeeded.addAll(existingMembers.stream().filter(member -> !reUsedMemberIds.contains(member.getMemberId())).toList());
 		}
 
 		List<ReferenceSetMember> toPersist = new ArrayList<>();
@@ -536,6 +555,7 @@ public class ConceptUpdateHelper extends ComponentService {
 		// Mark concept and components as deleted
 		logger.info("Deleting concept {} on branch {} at timepoint {}", concept.getConceptId(), path, commit.getTimepoint());
 		concept.markDeleted();
+		concept.getIdentifiers().forEach(identifier -> identifier.markDeleted());
 		Set<ReferenceSetMember> membersToDelete = new HashSet<>(concept.getAllOwlAxiomMembers());
 		concept.getDescriptions().forEach(description -> {
 			description.markDeleted();
@@ -550,6 +570,7 @@ public class ConceptUpdateHelper extends ComponentService {
 			inactivationIndicatorMember.markDeleted();
 		}
 		membersToDelete.addAll(concept.getAssociationTargetMembers());
+		membersToDelete.addAll(concept.getAllAnnotationMembers());
 		concept.getRelationships().forEach(Relationship::markDeleted);
 
 		MemberSearchRequest memberSearchRequest = new MemberSearchRequest();
@@ -567,6 +588,7 @@ public class ConceptUpdateHelper extends ComponentService {
 
 		// Persist deletion
 		doSaveBatchConcepts(Sets.newHashSet(concept), commit);
+		doSaveBatchIdentifiers(concept.getIdentifiers(), commit);
 		doSaveBatchDescriptions(concept.getDescriptions(), commit);
 		membersToDelete.forEach(ReferenceSetMember::markDeleted);
 		memberService.doSaveBatchMembers(membersToDelete, commit);
@@ -594,6 +616,13 @@ public class ConceptUpdateHelper extends ComponentService {
 	}
 
 	/**
+	 * Persists alternative identifier updates within commit.
+	 */
+	public void doSaveBatchIdentifiers(Collection<Identifier> identifiers, Commit commit) {
+		doSaveBatchComponents(identifiers, commit, Identifier.Fields.INTERNAL_IDENTIFIER_ID, identifierRepository);
+	}
+
+	/**
 	 * Persists relationships updates within commit.
 	 */
 	public void doSaveBatchRelationships(Collection<Relationship> relationships, Commit commit) {
@@ -609,11 +638,11 @@ public class ConceptUpdateHelper extends ComponentService {
 	}
 
 	List<ReferenceSetMember> doDeleteMembersWhereReferencedComponentDeleted(Set<String> entityVersionsDeleted, Commit commit) {
-		NativeSearchQuery query = new NativeSearchQueryBuilder()
+		NativeQuery query = new NativeQueryBuilder()
 				.withQuery(
-						boolQuery()
+						bool(b -> b
 								.must(versionControlHelper.getBranchCriteria(commit.getBranch()).getEntityBranchCriteria(ReferenceSetMember.class))
-								.must(termsQuery("referencedComponentId", entityVersionsDeleted))
+								.must(termsQuery("referencedComponentId", entityVersionsDeleted)))
 				).withPageable(LARGE_PAGE).build();
 
 		List<ReferenceSetMember> membersToDelete = new ArrayList<>();
@@ -631,8 +660,9 @@ public class ConceptUpdateHelper extends ComponentService {
 		return membersToDelete;
 	}
 
+	@SuppressWarnings("unchecked")
 	private <C extends SnomedComponent, T extends SnomedComponent<?>> void markDeletionsAndUpdates(T newConcept, T existingConcept, T existingConceptFromParent,
-			Function<T, Collection<C>> getter, String defaultModuleId, Collection<C> componentsToPersist, boolean rebase) {
+																								   Function<T, Collection<C>> getter, String defaultModuleId, Collection<C> componentsToPersist, boolean rebase) {
 
 		final Collection<C> newComponents = getExistingComponents(newConcept, getter);
 		final Collection<C> existingComponents = getExistingComponents(existingConcept, getter);
@@ -718,6 +748,8 @@ public class ConceptUpdateHelper extends ComponentService {
 			doSaveBatchConcepts((Collection<Concept>) components, commit);
 		} else if (type.equals(Description.class)) {
 			doSaveBatchDescriptions((Collection<Description>) components, commit);
+		}  else if (type.equals(Identifier.class)) {
+			doSaveBatchIdentifiers((Collection<Identifier>) components, commit);
 		} else if (type.equals(Relationship.class)) {
 			doSaveBatchRelationships((Collection<Relationship>) components, commit);
 		} else if (type.equals(ReferenceSetMember.class)) {

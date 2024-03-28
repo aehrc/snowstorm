@@ -11,16 +11,18 @@ import org.snomed.snowstorm.core.pojo.LanguageDialect;
 import org.snomed.snowstorm.core.pojo.TermLangPojo;
 import org.snomed.snowstorm.fhir.config.FHIRConstants;
 import org.springframework.data.annotation.Id;
+import org.springframework.data.annotation.Transient;
 import org.springframework.data.elasticsearch.annotations.Document;
 import org.springframework.data.elasticsearch.annotations.Field;
 import org.springframework.data.elasticsearch.annotations.FieldType;
+import org.springframework.data.elasticsearch.annotations.Setting;
 
 import java.util.*;
 import java.util.stream.Collectors;
 
 import static org.snomed.snowstorm.fhir.config.FHIRConstants.SNOMED_URI;
 
-@Document(indexName = "fhir-concept")
+@Document(indexName = "#{@indexNameProvider.indexName('fhir-concept')}", createIndex = false)
 public class FHIRConcept implements FHIRGraphNode {
 
 	public interface Fields {
@@ -47,6 +49,7 @@ public class FHIRConcept implements FHIRGraphNode {
 	@Field(type = FieldType.Integer)
 	private Integer displayLen;
 
+	@Transient
 	private final boolean active;
 
 	@Field(type = FieldType.Keyword)

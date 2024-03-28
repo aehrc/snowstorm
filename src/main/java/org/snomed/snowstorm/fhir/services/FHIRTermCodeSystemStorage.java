@@ -68,7 +68,7 @@ public class FHIRTermCodeSystemStorage implements ITermCodeSystemStorageSvc {
 
 		valueSets = orEmpty(valueSets);
 		logger.info("{} ValueSets found", valueSets.size());
-		fhirValueSetService.saveAllValueSetsOfCodeSystemVersion(valueSets);
+		fhirValueSetService.saveAllValueSetsOfCodeSystemVersionWithoutExpandValidation(valueSets);
 
 		conceptMaps = orEmpty(conceptMaps);
 		logger.info("{} ConceptMaps found", conceptMaps.size());
@@ -81,6 +81,7 @@ public class FHIRTermCodeSystemStorage implements ITermCodeSystemStorageSvc {
 			}
 		}
 
+		logger.info("Code System import complete for {}.", codeSystem.getUrl());
 		return new IdType("CodeSystem", codeSystemVersion.getId(), codeSystemVersion.getVersion());
 	}
 

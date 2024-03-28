@@ -1,5 +1,9 @@
 package org.snomed.snowstorm.core.data.services;
 
+import co.elastic.clients.elasticsearch._types.aggregations.AggregationBuilders;
+import co.elastic.clients.elasticsearch._types.aggregations.StringTermsBucket;
+import co.elastic.clients.json.JsonData;
+import com.google.common.base.Strings;
 import io.kaicode.elasticvc.api.BranchCriteria;
 import io.kaicode.elasticvc.api.BranchService;
 import io.kaicode.elasticvc.api.PathUtil;
@@ -7,23 +11,16 @@ import io.kaicode.elasticvc.api.VersionControlHelper;
 import io.kaicode.elasticvc.domain.Branch;
 import io.kaicode.elasticvc.domain.Metadata;
 import org.apache.activemq.command.ActiveMQTopic;
-import org.elasticsearch.common.Strings;
-import org.elasticsearch.search.aggregations.AggregationBuilders;
-import org.elasticsearch.search.aggregations.bucket.MultiBucketsAggregation;
-import org.elasticsearch.search.aggregations.bucket.terms.ParsedStringTerms;
-import org.elasticsearch.search.aggregations.bucket.terms.Terms;
 import org.modelmapper.ModelMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.snomed.snowstorm.core.data.domain.CodeSystem;
-import org.snomed.snowstorm.core.data.domain.CodeSystemVersion;
-import org.snomed.snowstorm.core.data.domain.Description;
-import org.snomed.snowstorm.core.data.domain.ReferenceSetMember;
+import org.snomed.snowstorm.core.data.domain.*;
 import org.snomed.snowstorm.core.data.repositories.CodeSystemRepository;
 import org.snomed.snowstorm.core.data.repositories.CodeSystemVersionRepository;
 import org.snomed.snowstorm.core.data.services.pojo.CodeSystemConfiguration;
 import org.snomed.snowstorm.core.data.services.pojo.PageWithBucketAggregationsFactory;
 import org.snomed.snowstorm.core.pojo.LanguageDialect;
+import org.snomed.snowstorm.core.util.AggregationUtils;
 import org.snomed.snowstorm.core.util.DateUtil;
 import org.snomed.snowstorm.core.util.LangUtil;
 import org.snomed.snowstorm.rest.pojo.CodeSystemUpdateRequest;
@@ -32,11 +29,12 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.elasticsearch.client.elc.Aggregation;
+import org.springframework.data.elasticsearch.client.elc.NativeQuery;
+import org.springframework.data.elasticsearch.client.elc.NativeQueryBuilder;
 import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
 import org.springframework.data.elasticsearch.core.SearchHit;
 import org.springframework.data.elasticsearch.core.SearchHits;
-import org.springframework.data.elasticsearch.core.query.NativeSearchQuery;
-import org.springframework.data.elasticsearch.core.query.NativeSearchQueryBuilder;
 import org.springframework.data.util.Pair;
 import org.springframework.jms.core.JmsTemplate;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -48,9 +46,12 @@ import java.util.function.Function;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
+import static co.elastic.clients.elasticsearch._types.query_dsl.QueryBuilders.bool;
+import static co.elastic.clients.elasticsearch._types.query_dsl.QueryBuilders.range;
 import static io.kaicode.elasticvc.api.ComponentService.LARGE_PAGE;
+import static io.kaicode.elasticvc.helper.QueryHelper.*;
 import static java.lang.String.format;
-import static org.elasticsearch.index.query.QueryBuilders.*;
+import static java.util.stream.Collectors.toList;
 import static org.snomed.snowstorm.config.Config.DEFAULT_LANGUAGE_CODES;
 import static org.snomed.snowstorm.core.data.services.BranchMetadataKeys.*;
 
@@ -110,16 +111,19 @@ public class CodeSystemService {
 	@Value("${codesystem.all.latest-version.allow-internal-release}")
 	private boolean latestVersionCanBeInternalRelease;
 
+	@Value("${snowstorm.codesystem-version.message.enabled}")
+	private boolean jmsMessageEnabled;
+
 	// Cache to prevent expensive aggregations. Entry per branch. Expires if there is a new commit.
 	private final ConcurrentHashMap<String, Pair<Date, CodeSystem>> contentInformationCache = new ConcurrentHashMap<>();
 
-	private Map<String, Integer> versionCommitEffectiveTimeCache = new HashMap<>();
+	private final Map<String, Integer> versionCommitEffectiveTimeCache = new HashMap<>();
 
 	private final Logger logger = LoggerFactory.getLogger(getClass());
 
 	public synchronized void init() {
 		// Create default code system if it does not yet exist
-		if (!repository.findById(SNOMEDCT).isPresent()) {
+		if (repository.findById(SNOMEDCT).isEmpty()) {
 			createCodeSystem(new CodeSystem(SNOMEDCT, MAIN));
 		}
 		logger.info("{} code system configurations available.", codeSystemConfigurationService.getConfigurations().size());
@@ -194,12 +198,11 @@ public class CodeSystemService {
 
 	public Optional<CodeSystem> findByBranchPath(String branchPath) {
 		List<CodeSystem> codeSystems = elasticsearchOperations.search(
-				new NativeSearchQueryBuilder()
-						.withQuery(boolQuery().must(termsQuery(CodeSystem.Fields.BRANCH_PATH, branchPath)))
-						.build(), CodeSystem.class)
+						new NativeQueryBuilder()
+								.withQuery(bool(b -> b.must(termQuery(CodeSystem.Fields.BRANCH_PATH, branchPath))))
+								.build(), CodeSystem.class)
 				.stream()
-				.map(SearchHit::getContent)
-				.collect(Collectors.toList());
+				.map(SearchHit::getContent).toList();
 
 		return codeSystems.isEmpty() ? Optional.empty() : Optional.of(codeSystems.get(0));
 	}
@@ -251,14 +254,16 @@ public class CodeSystemService {
 
 		logger.info("Versioning complete.");
 
-		Map payload = new HashMap();
-		payload.put("codeSystemShortName", codeSystem.getShortName());
-		payload.put("codeSystemBranchPath", codeSystem.getBranchPath());
-		payload.put("effectiveDate", String.valueOf(effectiveDate));
-		payload.put("versioningDate", String.valueOf(new Date().getTime()));
-		String topicDestination = jmsQueuePrefix + ".versioning.complete";
-		logger.info("Sending JMS Topic - destination {}, payload {}...", topicDestination, payload);
-		jmsTemplate.convertAndSend(new ActiveMQTopic(topicDestination), payload);
+		if (jmsMessageEnabled) {
+			Map<String, String> payload = new HashMap<>();
+			payload.put("codeSystemShortName", codeSystem.getShortName());
+			payload.put("codeSystemBranchPath", codeSystem.getBranchPath());
+			payload.put("effectiveDate", String.valueOf(effectiveDate));
+			payload.put("versioningDate", String.valueOf(new Date().getTime()));
+			String topicDestination = jmsQueuePrefix + ".versioning.complete";
+			logger.info("Sending JMS Topic - destination {}, payload {}...", topicDestination, payload);
+			jmsTemplate.convertAndSend(new ActiveMQTopic(topicDestination), payload);
+		}
 
 		return version;
 	}
@@ -321,8 +326,8 @@ public class CodeSystemService {
 	}
 
 	public synchronized void createVersionIfCodeSystemFoundOnPath(String branchPath, Integer releaseDate, boolean internalRelease) {
-		List<CodeSystem> codeSystems = elasticsearchOperations.search(new NativeSearchQuery(termQuery(CodeSystem.Fields.BRANCH_PATH, branchPath)), CodeSystem.class)
-				.get().map(SearchHit::getContent).collect(Collectors.toList());
+		List<CodeSystem> codeSystems = elasticsearchOperations.search(new NativeQuery(termQuery(CodeSystem.Fields.BRANCH_PATH, branchPath)), CodeSystem.class)
+				.get().map(SearchHit::getContent).toList();
 		if (!codeSystems.isEmpty()) {
 			CodeSystem codeSystem = codeSystems.get(0);
 			createVersion(codeSystem, releaseDate, format("%s %s import.", codeSystem.getShortName(), releaseDate), internalRelease);
@@ -337,7 +342,7 @@ public class CodeSystemService {
 
 	@Cacheable("code-system-branches")
 	public List<String> findAllCodeSystemBranchesUsingCache() {
-		return repository.findAll(PageRequest.of(0, 1000, Sort.by(CodeSystem.Fields.SHORT_NAME))).getContent().stream().map(CodeSystem::getBranchPath).sorted().collect(Collectors.toList());
+		return repository.findAll(PageRequest.of(0, 1000, Sort.by(CodeSystem.Fields.SHORT_NAME))).getContent().stream().map(CodeSystem::getBranchPath).sorted().collect(toList());
 	}
 
 	private void joinContentInformation(List<CodeSystem> codeSystems) {
@@ -401,21 +406,26 @@ public class CodeSystemService {
 		List<String> acceptableLanguageCodes = new ArrayList<>(DEFAULT_LANGUAGE_CODES);
 
 		// Add list of languages using Description aggregation
-		SearchHits<Description> descriptionSearch = elasticsearchOperations.search(new NativeSearchQueryBuilder()
-				.withQuery(boolQuery()
+		SearchHits<Description> descriptionSearch = elasticsearchOperations.search(new NativeQueryBuilder()
+				.withQuery(bool(b -> b
 						.must(branchCriteria.getEntityBranchCriteria(Description.class))
-						.must(termQuery(Description.Fields.ACTIVE, true)))
+						.must(termQuery(Description.Fields.ACTIVE, true))))
 				.withPageable(PageRequest.of(0, 1))
-				.addAggregation(AggregationBuilders.terms("language").field(Description.Fields.LANGUAGE_CODE))
+				.withAggregation("language", AggregationBuilders.terms().field(Description.Fields.LANGUAGE_CODE).size(20).build()._toAggregation())
 				.build(), Description.class);
 		if (descriptionSearch.hasAggregations()) {
+			Aggregation aggregation = AggregationUtils.getAggregations(descriptionSearch.getAggregations()).get("language");
+			List<StringTermsBucket> languageBuckets = new ArrayList<>();
+			if (aggregation.getAggregate().isSterms()) {
+				languageBuckets = new ArrayList<>(aggregation.getAggregate().sterms().buckets().array());
+
+			}
 			// Collect other languages for concept mini lookup
-			List<? extends Terms.Bucket> language = ((ParsedStringTerms) Objects.requireNonNull(descriptionSearch.getAggregations()).get("language")).getBuckets();
-			List<String> languageCodesSorted = language.stream()
+			List<String> languageCodesSorted = languageBuckets.stream()
 					// sort by number of active descriptions in each language
-					.sorted(Comparator.comparing(MultiBucketsAggregation.Bucket::getDocCount).reversed())
-					.map(MultiBucketsAggregation.Bucket::getKeyAsString)
-					.collect(Collectors.toList());
+					.sorted(Comparator.comparing(StringTermsBucket::docCount).reversed())
+					.map(b -> b.key().stringValue())
+					.collect(toList());
 
 			// Push english to the bottom to show any translated content first in browsers.
 			languageCodesSorted.remove("en");
@@ -438,17 +448,17 @@ public class CodeSystemService {
 		}
 
 		// Add list of modules using refset member aggregation
-		SearchHits<ReferenceSetMember> memberPage = elasticsearchOperations.search(new NativeSearchQueryBuilder()
-				.withQuery(boolQuery()
+		SearchHits<ReferenceSetMember> memberPage = elasticsearchOperations.search(new NativeQueryBuilder()
+				.withQuery(bool(b -> b
 						.must(branchCriteria.getEntityBranchCriteria(ReferenceSetMember.class))
-						.must(termQuery(ReferenceSetMember.Fields.ACTIVE, true)))
+						.must(termQuery(ReferenceSetMember.Fields.ACTIVE, true))))
 				.withPageable(PageRequest.of(0, 1))
-				.addAggregation(AggregationBuilders.terms("module").field(ReferenceSetMember.Fields.MODULE_ID))
+				.withAggregation("module", AggregationBuilders.terms(a -> a.field(ReferenceSetMember.Fields.MODULE_ID).size(50)))
 				.build(), ReferenceSetMember.class);
 		if (memberPage.hasAggregations()) {
 			Map<String, Long> modulesOfActiveMembers = PageWithBucketAggregationsFactory.createPage(memberPage, PageRequest.of(0, 1))
 					.getBuckets().get("module");
-			List<LanguageDialect> languageDialects = acceptableLanguageCodes.stream().map(LanguageDialect::new).collect(Collectors.toList());
+			List<LanguageDialect> languageDialects = acceptableLanguageCodes.stream().map(LanguageDialect::new).collect(toList());
 			codeSystem.setModules(conceptService.findConceptMinis(branchCriteria, modulesOfActiveMembers.keySet(), languageDialects).getResultsMap().values());
 		}
 
@@ -506,7 +516,7 @@ public class CodeSystemService {
 		if (codeSystemConfiguration == null) {
 			return null;
 		}
-		return find(codeSystemConfiguration.getShortName());
+		return find(codeSystemConfiguration.shortName());
 	}
 
 	public CodeSystemVersion findVersion(String shortName, int effectiveTime) {
@@ -550,7 +560,7 @@ public class CodeSystemService {
 		return content.stream()
 				.filter(version -> includeFutureVersions || (codeSystemsWithVersionVisibleAfterPublishedDate.contains(shortName) ? version.getEffectiveDate() < todaysEffectiveTime : version.getEffectiveDate() <= todaysEffectiveTime))
 				.filter(version -> includeInternalReleases || !version.isInternalRelease())
-				.collect(Collectors.toList());
+				.collect(toList());
 	}
 
 	public CodeSystemVersion findLatestImportedVersion(String shortName) {
@@ -576,8 +586,8 @@ public class CodeSystemService {
 
 	CodeSystem findOneByBranchPath(String path) {
 		List<CodeSystem> results = elasticsearchOperations.search(
-				new NativeSearchQueryBuilder().withQuery(termQuery(CodeSystem.Fields.BRANCH_PATH, path)).build(), CodeSystem.class)
-				.get().map(SearchHit::getContent).collect(Collectors.toList());
+				new NativeQueryBuilder().withQuery(termQuery(CodeSystem.Fields.BRANCH_PATH, path)).build(), CodeSystem.class)
+				.get().map(SearchHit::getContent).toList();
 		return results.isEmpty() ? null : results.get(0);
 	}
 
@@ -619,7 +629,7 @@ public class CodeSystemService {
 	public void updateDetailsFromConfig() {
 		logger.info("Updating the details of all code systems using values from configuration.");
 		final Map<String, CodeSystemConfiguration> configurationsMap = codeSystemConfigurationService.getConfigurations().stream()
-				.collect(Collectors.toMap(CodeSystemConfiguration::getShortName, Function.identity()));
+				.collect(Collectors.toMap(CodeSystemConfiguration::shortName, Function.identity()));
 		for (CodeSystem codeSystem : findAll()) {
 			final CodeSystemConfiguration configuration = configurationsMap.get(codeSystem.getShortName());
 			if (configuration != null) {
@@ -686,8 +696,8 @@ public class CodeSystemService {
 		}
 
 		SearchHits<CodeSystemVersion> queryCodeSystemVersions = elasticsearchOperations.search(
-				new NativeSearchQueryBuilder()
-						.withQuery(boolQuery().must(termQuery(CodeSystemVersion.Fields.SHORT_NAME, codeSystem.getShortName())))
+				new NativeQueryBuilder()
+						.withQuery(bool(b -> b.must(termQuery(CodeSystemVersion.Fields.SHORT_NAME, codeSystem.getShortName()))))
 						.build(), CodeSystemVersion.class
 		);
 
@@ -695,13 +705,13 @@ public class CodeSystemService {
 			return Collections.emptySet();
 		}
 
-		List<CodeSystemVersion> codeSystemVersions = queryCodeSystemVersions.getSearchHits().stream().map(SearchHit::getContent).collect(Collectors.toList());
+		List<CodeSystemVersion> codeSystemVersions = queryCodeSystemVersions.getSearchHits().stream().map(SearchHit::getContent).toList();
 		Set<String> branchPaths = codeSystemVersions.stream().map(CodeSystemVersion::getBranchPath).collect(Collectors.toSet());
 		SearchHits<Branch> queryBranches = elasticsearchOperations.search(
-				new NativeSearchQueryBuilder()
-						.withQuery(boolQuery()
-										.must(rangeQuery("base").gt(lowerBound).lte(upperBound))
-										.mustNot(existsQuery(Branch.Fields.END))
+				new NativeQueryBuilder()
+						.withQuery(bool(b -> b
+										.must(range(r -> r.field("base").gt(JsonData.of(lowerBound)).lte(JsonData.of(upperBound))).range()._toQuery())
+										.mustNot(existsQuery(Branch.Fields.END)))
 						).withFilter(termsQuery(Branch.Fields.PATH, branchPaths))
 						.build(), Branch.class
 		);

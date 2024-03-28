@@ -3,7 +3,6 @@ package org.snomed.snowstorm.ecl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.context.junit.jupiter.SpringExtension;
 
@@ -19,5 +18,4 @@ public class ECLQueryServiceTest extends AbstractECLQueryServiceTest {
 		allConceptIds = eclQueryService.selectConceptIds("*", branchCriteria, false, PageRequest.of(0, 1000))
 				.getContent().stream().map(Object::toString).collect(Collectors.toSet());
 	}
-
 }
